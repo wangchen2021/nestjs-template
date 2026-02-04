@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import { VersioningType, ValidationPipe } from '@nestjs/common';
 import cors from 'cors';
 import { ConfigService } from '@nestjs/config';
+import { setupSwagger } from './config/swagger/swagger.config';
 
 async function bootstrap() {
   try {
@@ -12,6 +13,7 @@ async function bootstrap() {
     const NODE_ENV = configService.get<string>('NODE_ENV');
     const CORS_ORIGIN =
       configService.get<string>('CORS_ORIGIN')?.split(',') || [];
+    setupSwagger(app);
     app.use(
       cors({
         origin: CORS_ORIGIN,
