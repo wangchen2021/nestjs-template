@@ -1,0 +1,117 @@
+name: NestJS Backend Auto Deploy to Tencent Cloud (BtPanel)
+run-name: ${{ github.actor }} 正在通过宝塔部署 NestJS 后端 🚀
+on:
+  # 核心：仅监听 main 分支的 Release 发布事件
+  release:
+    types: [published] # 仅当 Release 被「发布」（而非草稿/删除）时触发
+
+jobs:
+  Deploy-to-Tencent-Cloud-Bt:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "🎉 该任务由 ${{ github.event_name }} 事件自动触发."
+      - run: echo "🐧 当前运行在 GitHub 托管的 ${{ runner.os }} 服务器上!"
+      - run: echo "🔎 当前分支是 ${{ github.ref }}，仓库名称是 ${{ github.repository }}."
+
+      # 步骤1：拉取仓库代码
+      - name: Check out repository code
+        uses: actions/checkout@v5
+      - run: echo "💡 ${{ github.repository }} 仓库已克隆到运行器."
+
+      # 步骤2：安装 pnpm（GitHub 运行器默认无 pnpm，需手动安装）
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: '10.20.0'
+      - run: echo "📦 pnpm 包管理器安装完成."
+
+      # 步骤3：安装 Node.js 环境
+      - name: Set Up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.11.0'
+          cache: 'pnpm'
+
+      # 步骤4：用 pnpm 安装项目依赖
+      - name: Install Project Dependencies
+        run: pnpm install
+      - run: echo "🖥️ 项目依赖安装完成，准备构建."
+
+      # 步骤5：构建 NestJS 项目
+      - name: Build NestJS Project
+        run: pnpm build
+        env:
+          NODE_ENV: production
+          # 后端环境变量示例（根据实际需要添加）
+          # DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      - run: echo "🏗️ NestJS 项目构建完成，生成 dist 目录."
+
+      # 步骤6：查看构建产物（可选，调试用）
+      - name: List Build Files
+        run: ls -la ${{ github.workspace }}/dist
+      - run: echo "📂 已验证 dist 目录结构."
+
+      # 步骤7：创建部署目录（如果不存在）
+      - name: Create Deployment Directory on Server
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.TENCENT_SERVER_HOST }} # 腾讯云服务器公网IP
+          username: ${{ secrets.TENCENT_SERVER_USER }} # 服务器登录账号（如 root）
+          key: ${{ secrets.TENCENT_SERVER_SSH_KEY }} # SSH 私钥
+          port: ${{ secrets.TENCENT_SERVER_PORT }} # SSH 端口
+          script: mkdir -p /usr/local/project/nestjs-template/pro # 创建后端部署目录
+
+      # 步骤8：上传 dist 目录到宝塔服务器（后端部署目录）
+      - name: Upload Build Files to Tencent Cloud (BtPanel)
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.TENCENT_SERVER_HOST }} # 腾讯云服务器公网IP
+          username: ${{ secrets.TENCENT_SERVER_USER }} # 服务器登录账号（如 root）
+          key: ${{ secrets.TENCENT_SERVER_SSH_KEY }} # SSH 私钥
+          port: ${{ secrets.TENCENT_SERVER_PORT }} # SSH 端口
+          source: "${{ github.workspace }}/dist/*,${{ github.workspace }}/package.json,${{ github.workspace }}/pnpm-lock.yaml"
+          target: "/www/wwwroot/version_api"
+          overwrite: true # 覆盖原有文件
+
+      # 步骤9：在服务器上安装依赖并重启应用
+      - name: Install Dependencies and Restart Application
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.TENCENT_SERVER_HOST }}
+          username: ${{ secrets.TENCENT_SERVER_USER }}
+          key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
+          port: ${{ secrets.TENCENT_SERVER_PORT }}
+          script: |
+            # 切换到部署目录
+            cd /usr/local/project/nestjs-template/pro
+            
+            # 安装生产依赖
+            pnpm install --prod
+            
+            # 配置环境变量（如果需要）
+            # echo "PORT=3000" > .env
+            # echo "NODE_ENV=production" >> .env
+            
+            # 使用 PM2 重启应用（假设已安装 PM2）
+            if command -v pm2 &> /dev/null; then
+              pm2 restart version_api || pm2 start dist/main.js --name version_api
+              echo "✅ 应用已通过 PM2 重启"
+            else
+              echo "❌ PM2 未安装，请先安装 PM2: npm install -g pm2"
+              exit 1
+            fi
+
+      # 步骤10：验证部署状态
+      - name: Verify Deployment Status
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.TENCENT_SERVER_HOST }}
+          username: ${{ secrets.TENCENT_SERVER_USER }}
+          key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
+          port: ${{ secrets.TENCENT_SERVER_PORT }}
+          script: |
+            # 检查应用是否运行
+            pm2 status version_api
+            echo "✅ 部署任务已完成！应用状态：$?"
+
+      - run: echo "✅ NestJS 后端项目已成功部署到腾讯宝塔服务器！任务状态：${{ job.status }}."
