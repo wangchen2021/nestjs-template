@@ -1,12 +1,26 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+} from '@nestjs/common';
 import { LoginService } from './login.service';
 import { CreateLoginDto } from './dto/create-login.dto';
 import { UpdateLoginDto } from './dto/update-login.dto';
+import { ApiCreatedResponse } from '@nestjs/swagger';
 
 @Controller('login')
 export class LoginController {
   constructor(private readonly loginService: LoginService) {}
 
+  @ApiCreatedResponse({
+    description: '登录成功',
+    type: 'string',
+    example: '登陆成功',
+  })
   @Post()
   create(@Body() createLoginDto: CreateLoginDto) {
     return this.loginService.create(createLoginDto);

@@ -1,0 +1,2 @@
+#!/bin/sh
+exec npx commitlint --edit "$1"

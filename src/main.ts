@@ -27,6 +27,8 @@ async function bootstrap() {
     app.useGlobalPipes(new ValidationPipe());
     await app.listen(PORT ?? 3000, () => {
       console.log(`✅ ${NODE_ENV} 环境服务启动成功，端口：${PORT}`);
+      console.log(`本地地址：http://localhost:${PORT}`);
+      console.log(`文档地址：http://localhost:${PORT}/api/doc`);
     });
   } catch (err) {
     console.error(`sever start fail: `, err);
