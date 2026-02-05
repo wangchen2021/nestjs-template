@@ -70,7 +70,7 @@ jobs:
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }} # SSH 私钥
           port: ${{ secrets.TENCENT_SERVER_PORT }} # SSH 端口
           source: "${{ github.workspace }}/dist/*,${{ github.workspace }}/package.json,${{ github.workspace }}/pnpm-lock.yaml"
-          target: "/www/wwwroot/version_api"
+          target: "/usr/local/project/nestjs-template/pro"
           overwrite: true # 覆盖原有文件
 
       # 步骤9：在服务器上安装依赖并重启应用

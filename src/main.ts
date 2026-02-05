@@ -13,6 +13,7 @@ async function bootstrap() {
     const NODE_ENV = configService.get<string>('NODE_ENV');
     const CORS_ORIGIN =
       configService.get<string>('CORS_ORIGIN')?.split(',') || [];
+    const PREFIX = configService.get<string>('PREFIX') || '/';
     setupSwagger(app);
     app.use(
       cors({
@@ -25,6 +26,7 @@ async function bootstrap() {
       type: VersioningType.URI, //版本控制
     });
     app.useGlobalPipes(new ValidationPipe());
+    app.setGlobalPrefix(PREFIX);
     await app.listen(PORT ?? 3000, () => {
       console.log(`✅ ${NODE_ENV} 环境服务启动成功，端口：${PORT}`);
       console.log(`本地地址：http://localhost:${PORT}`);

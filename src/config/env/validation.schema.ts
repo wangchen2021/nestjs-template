@@ -10,4 +10,6 @@ export const validationSchema = Joi.object({
     .default('development'),
   // CORS 白名单：字符串，可选
   CORS_ORIGIN: Joi.string().default('http://localhost:5173'),
+  // 全局路由前缀：字符串，可选
+  PREFIX: Joi.string().default('/'),
 });
