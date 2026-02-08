@@ -21,9 +21,6 @@ COPY ./dist ./dist
 # 复制package.json（用于启动命令）
 COPY package.json ./
 
-# 复制生产环境配置文件
-COPY src/config/env/.env.production ./src/config/env/
-
 # 暴露端口
 EXPOSE 30001
 

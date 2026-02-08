@@ -80,7 +80,7 @@ jobs:
           username: ${{ secrets.TENCENT_SERVER_USER }}
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
           port: ${{ secrets.TENCENT_SERVER_PORT }}
-          source: "./dist/*,./package.json,./pnpm-lock.yaml ./src/config/env/.env ./src/config/env/.env.production"
+          source: "./dist/*,./package.json,./pnpm-lock.yaml,./src/config/env/.env,./src/config/env/.env.production"
           target: ${{ env.SERVER_PROJECT_DIR }}
           overwrite: true
           strip_components: 0
