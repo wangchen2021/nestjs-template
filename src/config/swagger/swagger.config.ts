@@ -4,6 +4,10 @@ import { AppConfigService } from '../config.service';
 
 export function setupSwagger(app: INestApplication<any>) {
   const configService = app.get(AppConfigService);
+  // 生产环境不启用Swagger
+  if (configService.isProduction()) {
+    return;
+  }
   const PREFIX = configService.getApiPrefix();
   const config = new DocumentBuilder()
     .setTitle('Api Server')

@@ -42,8 +42,10 @@ async function bootstrap() {
     // 启动服务
     await app.listen(PORT, () => {
       console.log(`✅ ${NODE_ENV} 环境服务启动成功，端口：${PORT}`);
-      console.log(`本地地址：http://localhost:${PORT}${PREFIX}`);
-      console.log(`文档地址：http://localhost:${PORT}${PREFIX}/api/doc`);
+      if (NODE_ENV === 'development') {
+        console.log(`本地地址：http://localhost:${PORT}${PREFIX}`);
+        console.log(`文档地址：http://localhost:${PORT}${PREFIX}/api/doc`);
+      }
       console.log(`API前缀：${PREFIX}`);
     });
   } catch (err) {
