@@ -78,7 +78,7 @@ jobs:
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
           port: ${{ secrets.TENCENT_SERVER_PORT }}
           source: "./dist/*" # 上传dist下的所有文件，而非目录本身
-          target: ${{ env.SERVER_PROJECT_DIR }}/dist
+          target: ${{ env.SERVER_PROJECT_DIR }}
           strip_components: 0
           overwrite: true
 
