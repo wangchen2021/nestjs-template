@@ -67,9 +67,10 @@ jobs:
           username: ${{ secrets.TENCENT_SERVER_USER }}
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
           port: ${{ secrets.TENCENT_SERVER_PORT }}
-          source: "${{ github.workspace }}/Dockerfile,${{ github.workspace }}/docker-compose.yml,${{ github.workspace }}/${{ env.NGINX_CONF_DIR }}/default.conf"
+          source: "./Dockerfile,./docker-compose.yml,./${{ env.NGINX_CONF_DIR }}/default.conf"
           target: ${{ env.SERVER_PROJECT_DIR }}
           overwrite: true
+          strip_components: 0
 
       # 步骤7：上传构建产物（dist）到服务器
       - name: Upload Build Files to Server
@@ -79,7 +80,7 @@ jobs:
           username: ${{ secrets.TENCENT_SERVER_USER }}
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
           port: ${{ secrets.TENCENT_SERVER_PORT }}
-          source: "./dist/*,./package.json,./pnpm-lock.yaml"
+          source: "./dist/*,./package.json,./pnpm-lock.yaml ./src/config/env/.env ./src/config/env/.env.production"
           target: ${{ env.SERVER_PROJECT_DIR }}
           overwrite: true
           strip_components: 0
