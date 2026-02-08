@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.7](https://github.com/wangchen2021/nestjs-template/compare/v0.0.6...v0.0.7) (2026-02-08)
+
+### Features
+
+- app info api ([18eb902](https://github.com/wangchen2021/nestjs-template/commit/18eb902779da8784b9b4a149be03dc9a35bc4d95))
+
 ## [0.0.6](https://github.com/wangchen2021/nestjs-template/compare/v0.0.5...v0.0.6) (2026-02-08)
 
 ### Features
