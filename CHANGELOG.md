@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.8](https://github.com/wangchen2021/nestjs-template/compare/v0.0.7...v0.0.8) (2026-02-08)
+
+### Features
+
+- 部署前清除文件夹 ([6c03a0c](https://github.com/wangchen2021/nestjs-template/commit/6c03a0c1a8646acf851af93f178e7206d7c4c694))
+
 ## [0.0.7](https://github.com/wangchen2021/nestjs-template/compare/v0.0.6...v0.0.7) (2026-02-08)
 
 ### Features
