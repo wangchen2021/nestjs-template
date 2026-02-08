@@ -37,7 +37,7 @@ export class VersionService implements OnModuleInit {
       env,
       commitHash,
       buildTime,
-      fullVersion: `${coreVersion}-${env}+${buildTime}.${commitHash}`, // 拼接完整版本号
+      fullVersion: `${coreVersion}-${env}-${buildTime}-${commitHash}`, // 拼接完整版本号
       buildId: 'local-dev',
     };
   }
