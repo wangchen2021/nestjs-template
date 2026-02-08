@@ -35,8 +35,8 @@ jobs:
         env:
           NODE_ENV: production
 
-      # 确保服务器目录存在
-      - name: Ensure server directory exists
+      # 确保服务器目录存在并清除旧文件
+      - name: Ensure server directory exists and clean old files
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.TENCENT_SERVER_HOST }}
@@ -44,8 +44,13 @@ jobs:
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
           port: ${{ secrets.TENCENT_SERVER_PORT }}
           script: |
+            # 创建目录（如果不存在）
             mkdir -p ${{ env.SERVER_PROJECT_DIR }}
             mkdir -p ${{ env.SERVER_PROJECT_DIR }}/${{ env.NGINX_CONF_DIR }}
+            
+            # 清除目录中的所有文件和子目录，但保留目录本身
+            cd ${{ env.SERVER_PROJECT_DIR }}
+            rm -rf *
 
       # 上传配置文件（无嵌套路径）
       - name: Upload Docker & Nginx configs
