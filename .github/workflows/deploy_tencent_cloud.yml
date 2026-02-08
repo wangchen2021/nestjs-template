@@ -43,7 +43,7 @@ jobs:
           # 1. 获取Git Commit短哈希（保底）
           if command -v git &> /dev/null; then
             COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-            BUILD_TIME=$(TZ=Asia/Shanghai date +%Y%m%d.%H%M%S 2>/dev/null || echo "unknown")
+            BUILD_TIME=$(TZ=Asia/Shanghai date +"%Y:%m:%d %H:%M:%S" 2>/dev/null || echo "unknown")
             
             # 2. 获取核心版本（优先Release Tag）
             if [ -n "${{ github.ref_name }}" ]; then
@@ -230,4 +230,4 @@ jobs:
             docker-compose logs --tail=10 nestjs-backend
             sleep 5
             echo "=== 验证版本信息接口 ==="
-            curl -s http://localhost:3000/info || echo "版本接口调用失败，请检查接口"
+            curl -s https://nestjs.duguqinchen.com/proApi/ || echo "版本接口调用失败，请检查接口"
