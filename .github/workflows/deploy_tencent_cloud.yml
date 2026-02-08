@@ -79,9 +79,10 @@ jobs:
           username: ${{ secrets.TENCENT_SERVER_USER }}
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
           port: ${{ secrets.TENCENT_SERVER_PORT }}
-          source: "${{ github.workspace }}/dist/*,${{ github.workspace }}/package.json,${{ github.workspace }}/pnpm-lock.yaml"
+          source: "./dist/*,./package.json,./pnpm-lock.yaml"
           target: ${{ env.SERVER_PROJECT_DIR }}
           overwrite: true
+          strip_components: 0
 
       # 步骤8：服务器端构建Docker镜像+推送至私有仓库
       - name: Build & Push Docker Image on Server
