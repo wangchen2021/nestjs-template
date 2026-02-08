@@ -1,0 +1,27 @@
+networks:
+  nest-nginx-30001-network:
+    driver: bridge
+
+services:
+  nestjs-backend:
+    build: .
+    image: localhost:5000/nestjs-template:v1 # 可选：打私有源标签
+    restart: always
+    environment:
+      - NODE_ENV=production
+    networks:
+      - nest-nginx-30001-network
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8001:80"
+      - "4431:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - /var/local/nestjs.duguqinchen.com_nginx:/etc/nginx/cert
+    depends_on:
+      - nestjs-backend
+    restart: always
+    networks:
+      - nest-nginx-30001-network

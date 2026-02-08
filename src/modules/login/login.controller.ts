@@ -18,7 +18,7 @@ export class LoginController {
 
   @ApiCreatedResponse({
     description: '登录成功',
-    type: 'string',
+    type: String,
     example: '登陆成功',
   })
   @Post()

@@ -12,24 +12,33 @@ import { LogsModule } from './common/logsUtils/logs.module';
 import { UtilsModule } from './common/utils/utils.module';
 import { UserModule } from './modules/user/user.module';
 import { LoginModule } from './modules/login/login.module';
+import { AppConfigModule } from './config/config.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
-      // 加载对应环境的配置文件
-      envFilePath: path.resolve(
-        process.cwd(),
-        `src/config/env/.env.${process.env.NODE_ENV || 'development'}`,
-      ),
+      // 分层加载配置文件（优先级：环境变量 > 环境配置 > 基础配置）
+      envFilePath: [
+        path.resolve(process.cwd(), 'src/config/env/.env'),
+        path.resolve(
+          process.cwd(),
+          `src/config/env/.env.${process.env.NODE_ENV || 'development'}`,
+        ),
+      ],
       // 启用全局配置（所有模块可注入 ConfigService）
       isGlobal: true,
       // 配置校验规则
       validationSchema,
       // 允许环境变量覆盖配置文件
       expandVariables: true,
+      // 忽略配置文件不存在的错误
+      ignoreEnvFile: false,
+      // 忽略环境变量不存在的错误
+      ignoreEnvVars: false,
     }),
     LogsModule,
     UtilsModule,
+    AppConfigModule,
     UserModule,
     LoginModule,
   ],
