@@ -45,4 +45,5 @@ async function bootstrap() {
     console.error(`服务启动失败: `, err);
   }
 }
+
 void bootstrap();

@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import git from 'git-rev-sync';
 import dayjs from 'dayjs';
-import { AppConfigService } from 'src/config/config.service';
+import { AppConfigService } from '../../config/config.service';
 
 export type BuildInfo = {
   coreVersion: string;

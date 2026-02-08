@@ -24,7 +24,8 @@
     "release": "release-it",
     "release:patch": "release-it patch",
     "release:minor": "release-it minor",
-    "release:major": "release-it major"
+    "release:major": "release-it major",
+    "generate:openapi": "ts-node scripts/generate-openapi.ts"
   },
   "engines": {
     "node": "24.x",
@@ -96,8 +97,10 @@
     "supertest": "^7.0.0",
     "ts-jest": "^29.2.5",
     "ts-loader": "^9.5.2",
+    "ts-morph": "^27.0.2",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
+    "typeorm-ts-node-commonjs": "^0.3.20",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.20.0"
   },

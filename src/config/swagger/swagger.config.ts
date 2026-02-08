@@ -4,18 +4,18 @@ import { AppConfigService } from '../config.service';
 
 export function setupSwagger(app: INestApplication<any>) {
   const configService = app.get(AppConfigService);
-  // 生产环境不启用Swagger
   if (configService.isProduction()) {
+    console.log('生产环境关闭Swagger文档');
     return;
   }
-  const PREFIX = configService.getApiPrefix();
+
   const config = new DocumentBuilder()
     .setTitle('Api Server')
     .setDescription('The Chen API description')
-    .setVersion('1.0')
+    .setVersion('1.0.0')
     .addTag('chen')
     .build();
 
   const documentFactory = () => SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup(`${PREFIX}/api/doc`, app, documentFactory);
+  SwaggerModule.setup('/api/doc', app, documentFactory);
 }
