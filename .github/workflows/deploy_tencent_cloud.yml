@@ -58,9 +58,6 @@ jobs:
           username: ${{ secrets.TENCENT_SERVER_USER }}
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
           port: ${{ secrets.TENCENT_SERVER_PORT }}
-          script: |
-            # 登录本地私有仓库（如果仓库无需密码，可跳过）
-            docker login localhost:5000 -u ${{ secrets.DOCKER_REGISTRY_USER }} -p ${{ secrets.DOCKER_REGISTRY_PWD }} || echo "私有仓库无需登录"
 
       # 步骤6：上传Docker相关配置文件到服务器
       - name: Upload Docker Config Files to Server
