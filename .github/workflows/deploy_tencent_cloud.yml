@@ -32,7 +32,7 @@ jobs:
         run: |
           pnpm install
           pnpm build
-          # 新增：验证构建产物是否存在（关键！）
+          # 验证构建产物是否存在
           ls -la ./dist
           if [ ! -f "./dist/main.js" ]; then
             echo "构建失败：dist/main.js不存在！"
@@ -41,7 +41,7 @@ jobs:
         env:
           NODE_ENV: production
 
-      # 确保服务器目录存在（移除rm -rf *，避免误删）
+      # 确保服务器目录存在
       - name: Ensure server directory exists
         uses: appleboy/ssh-action@master
         with:
@@ -53,23 +53,23 @@ jobs:
             mkdir -p ${{ env.SERVER_PROJECT_DIR }}
             mkdir -p ${{ env.SERVER_PROJECT_DIR }}/${{ env.NGINX_CONF_DIR }}
             mkdir -p ${{ env.SERVER_PROJECT_DIR }}/src/config/env
-            # 只删除旧的dist目录，保留其他配置
-            rm -rf ${{ env.SERVER_PROJECT_DIR }}/dist || echo "无旧dist目录"
+            mkdir -p ${{ env.SERVER_PROJECT_DIR }}/dist  # 确保dist目录存在
+            rm -rf ${{ env.SERVER_PROJECT_DIR }}/dist/* || echo "无旧dist文件"
 
-      # 上传配置文件
-      - name: Upload Docker & Nginx configs
+      # 合并上传：配置文件 + package.json + env文件
+      - name: Upload config & package files
         uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.TENCENT_SERVER_HOST }}
           username: ${{ secrets.TENCENT_SERVER_USER }}
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
           port: ${{ secrets.TENCENT_SERVER_PORT }}
-          source: "./Dockerfile,./docker-compose.yml,./${{ env.NGINX_CONF_DIR }}/default.conf"
+          source: "./Dockerfile,./docker-compose.yml,./${{ env.NGINX_CONF_DIR }}/default.conf,./package.json,./pnpm-lock.yaml,./src/config/env/.env,./src/config/env/.env.production"
           target: ${{ env.SERVER_PROJECT_DIR }}
           strip_components: 0
           overwrite: true
 
-      # 单独上传dist目录（避免和其他文件混传导致丢失）
+      # 修复：正确上传dist目录到服务器的dist目录下
       - name: Upload dist directory
         uses: appleboy/scp-action@master
         with:
@@ -77,21 +77,8 @@ jobs:
           username: ${{ secrets.TENCENT_SERVER_USER }}
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
           port: ${{ secrets.TENCENT_SERVER_PORT }}
-          source: "./dist/*" # 上传dist下的所有文件，而非目录本身
-          target: ${{ env.SERVER_PROJECT_DIR }}
-          strip_components: 0
-          overwrite: true
-
-      # 上传package.json、pnpm-lock.yaml和env文件
-      - name: Upload package.json & env files
-        uses: appleboy/scp-action@master
-        with:
-          host: ${{ secrets.TENCENT_SERVER_HOST }}
-          username: ${{ secrets.TENCENT_SERVER_USER }}
-          key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
-          port: ${{ secrets.TENCENT_SERVER_PORT }}
-          source: "./package.json,./pnpm-lock.yaml,./src/config/env/.env,./src/config/env/.env.production"
-          target: ${{ env.SERVER_PROJECT_DIR }}
+          source: "./dist"  # 上传整个dist目录
+          target: ${{ env.SERVER_PROJECT_DIR }}  # 目标目录
           strip_components: 0
           overwrite: true
 
@@ -111,7 +98,7 @@ jobs:
               exit 1
             fi
 
-      # 构建镜像 + 更新标签
+      # 修复：Docker构建+标签更新（增加容错+兼容Linux sed）
       - name: Build, Tag, Push Docker Image
         uses: appleboy/ssh-action@master
         with:
@@ -121,9 +108,20 @@ jobs:
           port: ${{ secrets.TENCENT_SERVER_PORT }}
           script: |
             cd ${{ env.SERVER_PROJECT_DIR }}
-            docker build -t ${{ env.DOCKER_REGISTRY }}:${{ github.ref_name }} .
-            docker push ${{ env.DOCKER_REGISTRY }}:${{ github.ref_name }}
-            sed -i "s|124.221.133.110:5000/nestjs-template:.*|${{ env.DOCKER_REGISTRY }}:${{ github.ref_name }}|" docker-compose.yml
+            # 构建镜像（失败则退出）
+            if ! docker build -t ${{ env.DOCKER_REGISTRY }}:${{ github.ref_name }} .; then
+              echo "Docker构建失败！"
+              exit 1
+            fi
+            # 推送镜像（失败则退出）
+            if ! docker push ${{ env.DOCKER_REGISTRY }}:${{ github.ref_name }}; then
+              echo "Docker推送失败！"
+              exit 1
+            fi
+            # 修复sed命令：兼容Linux，且使用环境变量匹配
+            sed -i.bak "s|${{ env.DOCKER_REGISTRY }}:.*|${{ env.DOCKER_REGISTRY }}:${{ github.ref_name }}|" docker-compose.yml
+            # 删除sed生成的备份文件
+            rm -f docker-compose.yml.bak
 
       # 重启服务
       - name: Restart containers
@@ -135,11 +133,11 @@ jobs:
           port: ${{ secrets.TENCENT_SERVER_PORT }}
           script: |
             cd ${{ env.SERVER_PROJECT_DIR }}
-            docker-compose down
+            docker-compose down || echo "容器未运行"
             docker-compose up -d --build
             docker-compose ps
 
-      # 验证日志
+      # 修复：验证日志（移除多余中文注释）
       - name: Verify deployment
         uses: appleboy/ssh-action@master
         with:
