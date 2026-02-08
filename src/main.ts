@@ -8,18 +8,14 @@ import { AppConfigService } from './config/config.service';
 async function bootstrap() {
   try {
     const app = await NestFactory.create(AppModule);
-
-    // 获取配置服务
     const configService = app.get(AppConfigService);
     const PORT = configService.getPort();
     const NODE_ENV = configService.getEnv();
     const CORS_ORIGIN = configService.getCorsOrigin();
     const PREFIX = configService.getApiPrefix();
 
-    // 设置Swagger文档
     setupSwagger(app);
 
-    // 配置CORS
     app.use(
       cors({
         origin: CORS_ORIGIN,
@@ -28,15 +24,12 @@ async function bootstrap() {
       }),
     );
 
-    // 启用版本控制
     app.enableVersioning({
       type: VersioningType.URI, //版本控制
     });
 
-    // 设置全局验证管道
     app.useGlobalPipes(new ValidationPipe());
 
-    // 设置全局路由前缀
     app.setGlobalPrefix(PREFIX);
 
     // 启动服务
