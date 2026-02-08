@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.3](https://github.com/wangchen2021/nestjs-template/compare/v0.0.2...v0.0.3) (2026-02-08)
+
+### Features
+
+- 修复cicd路径 ([d9f81eb](https://github.com/wangchen2021/nestjs-template/commit/d9f81eb5f9a0e4e3def743c47e2d9c0f2b8c2061))
+
 ## 0.0.2 (2026-02-08)
 
 ### Features
