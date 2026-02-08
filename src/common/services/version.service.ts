@@ -95,4 +95,8 @@ export class VersionService implements OnModuleInit {
   getFullVersion(): string {
     return this.buildInfo.fullVersion;
   }
+
+  getBuildTime(): string {
+    return this.buildInfo.buildTime;
+  }
 }

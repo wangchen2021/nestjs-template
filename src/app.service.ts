@@ -8,6 +8,7 @@ export class AppService {
     return {
       version: this.versionService.getFullVersion(),
       env: this.versionService.getEnv(),
+      data: this.versionService.getBuildTime(),
     };
   }
 }

@@ -40,11 +40,11 @@ jobs:
           COMMIT_HASH="unknown"
           BUILD_TIME="unknown"
 
-          # 1. 获取Git Commit短哈希（保底）
           if command -v git &> /dev/null; then
             COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-            BUILD_TIME=$(TZ=Asia/Shanghai date +"%Y:%m:%d-%H:%M:%S" 2>/dev/null || echo "unknown")
-            
+            BUILD_TIME=$(TZ=Asia/Shanghai date +"%Y:%m:%d %H:%M:%S" 2>/dev/null || echo "unknown")
+            BUILD_TIME_TAG=$(TZ=Asia/Shanghai date +%Y%m%d%H%M%S 2>/dev/null || echo "unknown")
+
             # 2. 获取核心版本（优先Release Tag）
             if [ -n "${{ github.ref_name }}" ]; then
               CORE_VERSION="${{ github.ref_name }}"
@@ -59,7 +59,7 @@ jobs:
             fi
             
             # 3. 拼接完整版本号
-            FULL_VERSION="${CORE_VERSION}-prod-${BUILD_TIME}-${COMMIT_HASH}"
+            FULL_VERSION="${CORE_VERSION}-prod-${BUILD_TIME_TAG}-${COMMIT_HASH}"
           fi
           
           # 4. 创建目录 + 生成build-info.json
