@@ -5,11 +5,12 @@ networks:
 services:
   nestjs-backend:
     build: .
-    image: localhost:5000/nestjs-template:v1 # 可选：打私有源标签
+    image: 124.221.133.110:5000/nestjs-template:v1
     restart: always
     environment:
       - NODE_ENV=production
     volumes:
+      - ./src/config/env/.env:/app/src/config/env/.env:ro
       - ./src/config/env/.env.production:/app/src/config/env/.env.production:ro
     networks:
       - nest-nginx-30001-network

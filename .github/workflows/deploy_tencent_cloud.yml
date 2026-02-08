@@ -1,66 +1,54 @@
 name: NestJS Backend Auto Deploy to Tencent Cloud (Docker)
 run-name: ${{ github.actor }} 正在通过Docker部署NestJS后端 🚀
+
 on:
-  # 仅监听main分支的Release发布事件
   release:
     types: [published]
 
-# 核心：统一配置项目目录变量（只需改这里！）
 env:
-  # 服务器端项目根目录（所有路径基于这个变量）
   SERVER_PROJECT_DIR: "/usr/local/project/nestjs-template/pro"
-  # Docker私有仓库地址+镜像名前缀（统一配置）
   DOCKER_REGISTRY: "124.221.133.110:5000/nestjs-template"
-  # Nginx配置子目录（若有变动仅改这里）
   NGINX_CONF_DIR: "nginx/conf.d"
 
 jobs:
   Deploy-to-Tencent-Cloud-Docker:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "🎉 该任务由 ${{ github.event_name }} 事件自动触发."
-      - run: echo "🐧 当前运行在 GitHub 托管的 ${{ runner.os }} 服务器上!"
-      - run: echo "🔎 当前分支是 ${{ github.ref }}，仓库名称是 ${{ github.repository }}."
-
-      # 步骤1：拉取仓库代码
-      - name: Check out repository code
+      - name: Check out code
         uses: actions/checkout@v5
-      - run: echo "💡 ${{ github.repository }} 仓库已克隆到运行器."
 
-      # 步骤2：安装pnpm
       - name: Install pnpm
         uses: pnpm/action-setup@v2
         with:
           version: '10.20.0'
-      - run: echo "📦 pnpm包管理器安装完成."
 
-      # 步骤3：安装Node.js环境
-      - name: Set Up Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '24.11.0'
           cache: 'pnpm'
 
-      # 步骤4：安装依赖+构建项目（生成dist目录）
-      - name: Install Dependencies & Build Project
+      - name: Install dependencies & Build
         run: |
           pnpm install
           pnpm build
         env:
           NODE_ENV: production
-      - run: echo "🏗️ NestJS项目构建完成，生成dist目录."
 
-      # 步骤5：登录服务器私有Docker仓库（关键！推送镜像用）
-      - name: Login to Private Docker Registry
+      # 确保服务器目录存在
+      - name: Ensure server directory exists
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.TENCENT_SERVER_HOST }}
           username: ${{ secrets.TENCENT_SERVER_USER }}
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
           port: ${{ secrets.TENCENT_SERVER_PORT }}
+          script: |
+            mkdir -p ${{ env.SERVER_PROJECT_DIR }}
+            mkdir -p ${{ env.SERVER_PROJECT_DIR }}/${{ env.NGINX_CONF_DIR }}
 
-      # 步骤6：上传Docker相关配置文件到服务器
-      - name: Upload Docker Config Files to Server
+      # 上传配置文件（无嵌套路径）
+      - name: Upload Docker & Nginx configs
         uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.TENCENT_SERVER_HOST }}
@@ -69,24 +57,24 @@ jobs:
           port: ${{ secrets.TENCENT_SERVER_PORT }}
           source: "./Dockerfile,./docker-compose.yml,./${{ env.NGINX_CONF_DIR }}/default.conf"
           target: ${{ env.SERVER_PROJECT_DIR }}
-          overwrite: true
           strip_components: 0
+          overwrite: true
 
-      # 步骤7：上传构建产物（dist）到服务器
-      - name: Upload Build Files to Server
+      # 上传 dist + env（无嵌套路径）
+      - name: Upload dist, package.json, env
         uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.TENCENT_SERVER_HOST }}
           username: ${{ secrets.TENCENT_SERVER_USER }}
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
           port: ${{ secrets.TENCENT_SERVER_PORT }}
-          source: "./dist/*,./package.json,./pnpm-lock.yaml,./src/config/env/.env,./src/config/env/.env.production"
+          source: "./dist,./package.json,./pnpm-lock.yaml,./src/config/env/.env,./src/config/env/.env.production"
           target: ${{ env.SERVER_PROJECT_DIR }}
-          overwrite: true
           strip_components: 0
+          overwrite: true
 
-      # 步骤8：服务器端构建Docker镜像+推送至私有仓库
-      - name: Build & Push Docker Image on Server
+      # 构建镜像 + 更新标签
+      - name: Build, Tag, Push Docker Image
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.TENCENT_SERVER_HOST }}
@@ -94,20 +82,13 @@ jobs:
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
           port: ${{ secrets.TENCENT_SERVER_PORT }}
           script: |
-            # 进入项目目录（使用统一变量）
             cd ${{ env.SERVER_PROJECT_DIR }}
-            
-            # 构建镜像（使用统一的Docker仓库变量）
             docker build -t ${{ env.DOCKER_REGISTRY }}:${{ github.ref_name }} .
-            
-            # 推送镜像到私有仓库
             docker push ${{ env.DOCKER_REGISTRY }}:${{ github.ref_name }}
-            
-            # 更新docker-compose.yml中的镜像标签（适配Release版本）
-            sed -i "s|image: ${{ env.DOCKER_REGISTRY }}:v1|image: ${{ env.DOCKER_REGISTRY }}:${{ github.ref_name }}|g" docker-compose.yml
+            sed -i "s|124.221.133.110:5000/nestjs-template:.*|${{ env.DOCKER_REGISTRY }}:${{ github.ref_name }}|" docker-compose.yml
 
-      # 步骤9：服务器端启动/重启Docker服务
-      - name: Start/Restart Docker Services
+      # 重启服务
+      - name: Restart containers
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.TENCENT_SERVER_HOST }}
@@ -116,18 +97,12 @@ jobs:
           port: ${{ secrets.TENCENT_SERVER_PORT }}
           script: |
             cd ${{ env.SERVER_PROJECT_DIR }}
-            
-            # 停止旧服务（如果存在）
-            docker-compose down || echo "无旧服务需停止"
-            
-            # 构建+启动新服务（后台运行）
+            docker-compose down
             docker-compose up -d --build
-            
-            # 查看服务状态
             docker-compose ps
 
-      # 步骤10：验证部署结果
-      - name: Verify Deployment
+      # 验证日志
+      - name: Verify deployment
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.TENCENT_SERVER_HOST }}
@@ -135,16 +110,8 @@ jobs:
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
           port: ${{ secrets.TENCENT_SERVER_PORT }}
           script: |
-            # 检查容器状态
-            echo "📌 容器运行状态："
-            cd ${{ env.SERVER_PROJECT_DIR }} && docker-compose ps
-            
-            # 检查Nginx日志（无报错则正常）
-            echo "📌 Nginx最新日志："
-            cd ${{ env.SERVER_PROJECT_DIR }} && docker-compose logs --tail=10 nginx
-            
-            # 检查NestJS日志
-            echo "📌 NestJS最新日志："
-            cd ${{ env.SERVER_PROJECT_DIR }} && docker-compose logs --tail=10 nestjs-backend
-
-      - run: echo "✅ NestJS后端已通过Docker成功部署到腾讯云服务器！任务状态：${{ job.status }}."
+            cd ${{ env.SERVER_PROJECT_DIR }}
+            echo "=== NGINX LOG ==="
+            docker-compose logs --tail=10 nginx
+            echo "=== BACKEND LOG ==="
+            docker-compose logs --tail=10 nestjs-backend
