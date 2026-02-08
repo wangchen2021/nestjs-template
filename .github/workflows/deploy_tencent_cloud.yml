@@ -43,7 +43,7 @@ jobs:
           # 1. 获取Git Commit短哈希（保底）
           if command -v git &> /dev/null; then
             COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-            BUILD_TIME=$(TZ=Asia/Shanghai date +"%Y:%m:%d %H:%M:%S" 2>/dev/null || echo "unknown")
+            BUILD_TIME=$(TZ=Asia/Shanghai date +"%Y:%m:%d-%H:%M:%S" 2>/dev/null || echo "unknown")
             
             # 2. 获取核心版本（优先Release Tag）
             if [ -n "${{ github.ref_name }}" ]; then
