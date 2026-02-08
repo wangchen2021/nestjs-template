@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # 必须拉取完整Git历史
 
       - name: Install pnpm
         uses: pnpm/action-setup@v2
@@ -28,15 +30,80 @@ jobs:
           node-version: '24.11.0'
           cache: 'pnpm'
 
+      # ========== 修复：生成build-info.json + 显式输出变量 ==========
+      - name: Generate build info file
+        id: build_info # 必须保留id，用于后续引用输出变量
+        run: |
+          # 初始化默认值，防止变量为空
+          CORE_VERSION="unknown"
+          FULL_VERSION="unknown-prod+unknown.unknown"
+          COMMIT_HASH="unknown"
+          BUILD_TIME="unknown"
+
+          # 1. 获取Git Commit短哈希（保底）
+          if command -v git &> /dev/null; then
+            COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+            BUILD_TIME=$(TZ=Asia/Shanghai date +%Y%m%d.%H%M%S 2>/dev/null || echo "unknown")
+            
+            # 2. 获取核心版本（优先Release Tag）
+            if [ -n "${{ github.ref_name }}" ]; then
+              CORE_VERSION="${{ github.ref_name }}"
+            else
+              # 尝试获取最新Tag
+              TAG_VERSION=$(git describe --tags --abbrev=0 2>/dev/null)
+              if [ -n "$TAG_VERSION" ]; then
+                CORE_VERSION="$TAG_VERSION"
+              else
+                CORE_VERSION="$COMMIT_HASH" # 用Commit哈希兜底
+              fi
+            fi
+            
+            # 3. 拼接完整版本号
+            FULL_VERSION="${CORE_VERSION}-prod+${BUILD_TIME}.${COMMIT_HASH}"
+          fi
+          
+          # 4. 创建目录 + 生成build-info.json
+          mkdir -p ./src/config
+          cat > ./src/config/build-info.json << EOF
+          {
+            "coreVersion": "${CORE_VERSION}",
+            "env": "prod",
+            "commitHash": "${COMMIT_HASH}",
+            "buildTime": "${BUILD_TIME}",
+            "fullVersion": "${FULL_VERSION}",
+            "buildId": "${{ github.run_id }}-${{ github.run_attempt }}"
+          }
+          EOF
+          
+          # 5. 方式1：输出到step的outputs（推荐，优先级高于env）
+          echo "full_version=${FULL_VERSION}" >> $GITHUB_OUTPUT
+          echo "core_version=${CORE_VERSION}" >> $GITHUB_OUTPUT
+          echo "commit_hash=${COMMIT_HASH}" >> $GITHUB_OUTPUT
+          
+          # 6. 方式2：输出到环境变量（兼容原有引用）
+          echo "FULL_VERSION=${FULL_VERSION}" >> $GITHUB_ENV
+          echo "CORE_VERSION=${CORE_VERSION}" >> $GITHUB_ENV
+          echo "COMMIT_HASH=${COMMIT_HASH}" >> $GITHUB_ENV
+          
+          # 验证输出
+          echo "最终版本信息：FULL_VERSION=$FULL_VERSION, CORE_VERSION=$CORE_VERSION"
+          cat ./src/config/build-info.json
+        env:
+          NODE_ENV: production
+
       - name: Install dependencies & Build
         run: |
           pnpm install
           pnpm build
-          # 验证构建产物是否存在
+          # 验证构建产物
           ls -la ./dist
           if [ ! -f "./dist/main.js" ]; then
             echo "构建失败：dist/main.js不存在！"
             exit 1
+          fi
+          # 验证版本文件
+          if [ ! -f "./dist/config/build-info.json" ]; then
+            echo "警告：build-info.json未打包到dist，请检查nest-cli配置！"
           fi
         env:
           NODE_ENV: production
@@ -53,10 +120,11 @@ jobs:
             mkdir -p ${{ env.SERVER_PROJECT_DIR }}
             mkdir -p ${{ env.SERVER_PROJECT_DIR }}/${{ env.NGINX_CONF_DIR }}
             mkdir -p ${{ env.SERVER_PROJECT_DIR }}/src/config/env
-            mkdir -p ${{ env.SERVER_PROJECT_DIR }}/dist  # 确保dist目录存在
+            mkdir -p ${{ env.SERVER_PROJECT_DIR }}/src/config
+            mkdir -p ${{ env.SERVER_PROJECT_DIR }}/dist
             rm -rf ${{ env.SERVER_PROJECT_DIR }}/dist/* || echo "无旧dist文件"
 
-      # 合并上传：配置文件 + package.json + env文件
+      # 上传配置文件（含版本文件）
       - name: Upload config & package files
         uses: appleboy/scp-action@master
         with:
@@ -64,12 +132,12 @@ jobs:
           username: ${{ secrets.TENCENT_SERVER_USER }}
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
           port: ${{ secrets.TENCENT_SERVER_PORT }}
-          source: "./Dockerfile,./docker-compose.yml,./${{ env.NGINX_CONF_DIR }}/default.conf,./package.json,./pnpm-lock.yaml,./src/config/env/.env,./src/config/env/.env.production"
+          source: "./Dockerfile,./docker-compose.yml,./${{ env.NGINX_CONF_DIR }}/default.conf,./package.json,./pnpm-lock.yaml,./src/config/env/.env,./src/config/env/.env.production,./src/config/build-info.json"
           target: ${{ env.SERVER_PROJECT_DIR }}
           strip_components: 0
           overwrite: true
 
-      # 修复：正确上传dist目录到服务器的dist目录下
+      # 上传dist目录
       - name: Upload dist directory
         uses: appleboy/scp-action@master
         with:
@@ -77,12 +145,12 @@ jobs:
           username: ${{ secrets.TENCENT_SERVER_USER }}
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
           port: ${{ secrets.TENCENT_SERVER_PORT }}
-          source: "./dist"  # 上传整个dist目录
-          target: ${{ env.SERVER_PROJECT_DIR }}  # 目标目录
+          source: "./dist"
+          target: ${{ env.SERVER_PROJECT_DIR }}
           strip_components: 0
           overwrite: true
 
-      # 验证服务器dist文件是否存在
+      # 验证服务器文件
       - name: Verify dist file on server
         uses: appleboy/ssh-action@master
         with:
@@ -93,12 +161,18 @@ jobs:
           script: |
             cd ${{ env.SERVER_PROJECT_DIR }}
             ls -la ./dist
+            if [ ! -f "./src/config/build-info.json" ]; then
+              echo "警告：src/config/build-info.json未上传！"
+            fi
+            if [ ! -f "./dist/config/build-info.json" ]; then
+              echo "警告：dist/config/build-info.json未上传！"
+            fi
             if [ ! -f "./dist/main.js" ]; then
               echo "上传失败：dist/main.js不存在！"
               exit 1
             fi
 
-      # 修复：Docker构建+标签更新（增加容错+兼容Linux sed）
+      # 构建Docker镜像（使用step outputs，彻底消除警告）
       - name: Build, Tag, Push Docker Image
         uses: appleboy/ssh-action@master
         with:
@@ -108,19 +182,22 @@ jobs:
           port: ${{ secrets.TENCENT_SERVER_PORT }}
           script: |
             cd ${{ env.SERVER_PROJECT_DIR }}
-            # 构建镜像（失败则退出）
-            if ! docker build -t ${{ env.DOCKER_REGISTRY }}:${{ github.ref_name }} .; then
+            IMAGE_TAG="${{ steps.build_info.outputs.full_version }}"
+            # 构建镜像（添加容错）
+            if ! docker build \
+              --build-arg BUILD_VERSION="${{ steps.build_info.outputs.full_version }}" \
+              --build-arg BUILD_COMMIT="${{ steps.build_info.outputs.commit_hash }}" \
+              -t ${{ env.DOCKER_REGISTRY }}:$IMAGE_TAG .; then
               echo "Docker构建失败！"
               exit 1
             fi
-            # 推送镜像（失败则退出）
-            if ! docker push ${{ env.DOCKER_REGISTRY }}:${{ github.ref_name }}; then
+            # 推送镜像
+            if ! docker push ${{ env.DOCKER_REGISTRY }}:$IMAGE_TAG; then
               echo "Docker推送失败！"
               exit 1
             fi
-            # 修复sed命令：兼容Linux，且使用环境变量匹配
-            sed -i.bak "s|${{ env.DOCKER_REGISTRY }}:.*|${{ env.DOCKER_REGISTRY }}:${{ github.ref_name }}|" docker-compose.yml
-            # 删除sed生成的备份文件
+            # 更新docker-compose.yml
+            sed -i.bak "s|${{ env.DOCKER_REGISTRY }}:.*|${{ env.DOCKER_REGISTRY }}:$IMAGE_TAG|" docker-compose.yml
             rm -f docker-compose.yml.bak
 
       # 重启服务
@@ -137,7 +214,7 @@ jobs:
             docker-compose up -d --build
             docker-compose ps
 
-      # 修复：验证日志（移除多余中文注释）
+      # 验证部署
       - name: Verify deployment
         uses: appleboy/ssh-action@master
         with:
@@ -151,3 +228,6 @@ jobs:
             docker-compose logs --tail=10 nginx
             echo "=== BACKEND LOG ==="
             docker-compose logs --tail=10 nestjs-backend
+            sleep 5
+            echo "=== 验证版本信息接口 ==="
+            curl -s http://localhost:3000/info || echo "版本接口调用失败，请检查接口"

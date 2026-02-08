@@ -13,6 +13,7 @@ import { UtilsModule } from './common/utils/utils.module';
 import { UserModule } from './modules/user/user.module';
 import { LoginModule } from './modules/login/login.module';
 import { AppConfigModule } from './config/config.module';
+import { VersionService } from './common/services/version.service';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { AppConfigModule } from './config/config.module';
   providers: [
     LogsService,
     AppService,
+    VersionService,
     { provide: APP_FILTER, useClass: GlobalExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
   ],

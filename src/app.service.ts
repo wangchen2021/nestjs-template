@@ -1,14 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { AppDto } from './common/dto/app.dto';
-import { ConfigService } from '@nestjs/config';
-import git from 'git-rev-sync';
+import { VersionService } from './common/services/version.service';
 @Injectable()
 export class AppService {
-  constructor(private configService: ConfigService) {}
+  constructor(private versionService: VersionService) {}
   getAppInfo(): AppDto {
     return {
-      version: git.tag() || 'unknown',
-      env: this.configService.get('NODE_ENV') || 'unknown',
+      version: this.versionService.getFullVersion(),
+      env: this.versionService.getEnv(),
     };
   }
 }

@@ -44,7 +44,7 @@ async function bootstrap() {
       console.log(`✅ ${NODE_ENV} 环境服务启动成功，端口：${PORT}`);
       if (NODE_ENV === 'development') {
         console.log(`本地地址：http://localhost:${PORT}${PREFIX}`);
-        console.log(`文档地址：http://localhost:${PORT}${PREFIX}/api/doc`);
+        console.log(`文档地址：http://localhost:${PORT}${PREFIX}api/doc`);
       }
       console.log(`API前缀：${PREFIX}`);
     });
@@ -52,4 +52,4 @@ async function bootstrap() {
     console.error(`服务启动失败: `, err);
   }
 }
-bootstrap();
+void bootstrap();
