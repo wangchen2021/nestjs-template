@@ -32,11 +32,17 @@ jobs:
         run: |
           pnpm install
           pnpm build
+          # 新增：验证构建产物是否存在（关键！）
+          ls -la ./dist
+          if [ ! -f "./dist/main.js" ]; then
+            echo "构建失败：dist/main.js不存在！"
+            exit 1
+          fi
         env:
           NODE_ENV: production
 
-      # 确保服务器目录存在并清除旧文件
-      - name: Ensure server directory exists and clean old files
+      # 确保服务器目录存在（移除rm -rf *，避免误删）
+      - name: Ensure server directory exists
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.TENCENT_SERVER_HOST }}
@@ -44,15 +50,13 @@ jobs:
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
           port: ${{ secrets.TENCENT_SERVER_PORT }}
           script: |
-            # 创建目录（如果不存在）
             mkdir -p ${{ env.SERVER_PROJECT_DIR }}
             mkdir -p ${{ env.SERVER_PROJECT_DIR }}/${{ env.NGINX_CONF_DIR }}
-            
-            # 清除目录中的所有文件和子目录，但保留目录本身
-            cd ${{ env.SERVER_PROJECT_DIR }}
-            rm -rf *
+            mkdir -p ${{ env.SERVER_PROJECT_DIR }}/src/config/env
+            # 只删除旧的dist目录，保留其他配置
+            rm -rf ${{ env.SERVER_PROJECT_DIR }}/dist || echo "无旧dist目录"
 
-      # 上传配置文件（无嵌套路径）
+      # 上传配置文件
       - name: Upload Docker & Nginx configs
         uses: appleboy/scp-action@master
         with:
@@ -65,18 +69,47 @@ jobs:
           strip_components: 0
           overwrite: true
 
-      # 上传 dist + env（无嵌套路径）
-      - name: Upload dist, package.json, env
+      # 单独上传dist目录（避免和其他文件混传导致丢失）
+      - name: Upload dist directory
         uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.TENCENT_SERVER_HOST }}
           username: ${{ secrets.TENCENT_SERVER_USER }}
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
           port: ${{ secrets.TENCENT_SERVER_PORT }}
-          source: "./dist,./package.json,./pnpm-lock.yaml,./src/config/env/.env,./src/config/env/.env.production"
+          source: "./dist/*" # 上传dist下的所有文件，而非目录本身
+          target: ${{ env.SERVER_PROJECT_DIR }}/dist
+          strip_components: 0
+          overwrite: true
+
+      # 上传package.json、pnpm-lock.yaml和env文件
+      - name: Upload package.json & env files
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.TENCENT_SERVER_HOST }}
+          username: ${{ secrets.TENCENT_SERVER_USER }}
+          key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
+          port: ${{ secrets.TENCENT_SERVER_PORT }}
+          source: "./package.json,./pnpm-lock.yaml,./src/config/env/.env,./src/config/env/.env.production"
           target: ${{ env.SERVER_PROJECT_DIR }}
           strip_components: 0
           overwrite: true
+
+      # 验证服务器dist文件是否存在
+      - name: Verify dist file on server
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.TENCENT_SERVER_HOST }}
+          username: ${{ secrets.TENCENT_SERVER_USER }}
+          key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
+          port: ${{ secrets.TENCENT_SERVER_PORT }}
+          script: |
+            cd ${{ env.SERVER_PROJECT_DIR }}
+            ls -la ./dist
+            if [ ! -f "./dist/main.js" ]; then
+              echo "上传失败：dist/main.js不存在！"
+              exit 1
+            fi
 
       # 构建镜像 + 更新标签
       - name: Build, Tag, Push Docker Image
