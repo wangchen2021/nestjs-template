@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.4](https://github.com/wangchen2021/nestjs-template/compare/v0.0.3...v0.0.4) (2026-02-08)
+
+### Features
+
+- 修复env ([efae005](https://github.com/wangchen2021/nestjs-template/commit/efae00575c8cf6c58307247401a5562b76adca4a))
+
 ## [0.0.3](https://github.com/wangchen2021/nestjs-template/compare/v0.0.2...v0.0.3) (2026-02-08)
 
 ### Features
