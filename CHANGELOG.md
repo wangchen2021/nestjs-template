@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.23](https://github.com/wangchen2021/nestjs-template/compare/v0.0.22...v0.0.23) (2026-02-09)
+
+### Features
+
+- 使用node用户 ([58e7d3d](https://github.com/wangchen2021/nestjs-template/commit/58e7d3d8e4765daa65f7547b5dee40a76961be06))
+
 ## [0.0.22](https://github.com/wangchen2021/nestjs-template/compare/v0.0.21...v0.0.22) (2026-02-09)
 
 ### Features
