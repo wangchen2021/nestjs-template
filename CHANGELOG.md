@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.21](https://github.com/wangchen2021/nestjs-template/compare/v0.0.20...v0.0.21) (2026-02-09)
+
+### Features
+
+- 29 ([17e9811](https://github.com/wangchen2021/nestjs-template/commit/17e981157217560d0fcbbcbabc4390cdf81c6091))
+- 增加docker非root用户 ([8d77821](https://github.com/wangchen2021/nestjs-template/commit/8d77821917ec8782b685e3005c95522eba3eda93))
+
 ## [0.0.20](https://github.com/wangchen2021/nestjs-template/compare/v0.0.19...v0.0.20) (2026-02-08)
 
 ### Features
