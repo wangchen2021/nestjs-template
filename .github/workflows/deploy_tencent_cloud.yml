@@ -251,7 +251,7 @@ jobs:
             echo "替换后的镜像配置："
             cat docker-compose.yml | grep "image: "
 
-      # 核心修改：清理旧镜像改为保留最新3个版本
+      # 核心修复：清理旧镜像（保留最新3个，强制删除依赖容器）
       - name: Cleanup old Docker images
         uses: appleboy/ssh-action@master
         with:
@@ -265,51 +265,57 @@ jobs:
             cd ${{ env.SERVER_PROJECT_DIR }}
             echo "===== 清理旧镜像（仅保留最新3个版本） ====="
             
-            # 步骤1：获取该项目所有镜像（排除latest标签），按创建时间降序排序
-            # 输出格式：创建时间戳 镜像名:标签
-            IMAGES_LIST=$(docker images --format "{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}" \
+            # 改用Docker原生排序（更稳定，避免时间戳转换问题）
+            # --sort=created_desc：按创建时间降序；--format：只输出镜像名:标签
+            IMAGE_LIST=$(docker images \
+              --sort=created_desc \
+              --format="{{.Repository}}:{{.Tag}}" \
               | grep "${{ secrets.DOCKER_PATH }}/nestjs-template" \
               | grep -v "latest" \
-              | awk '{
-                  # 将Docker的CreatedAt格式（2026-02-09T12:34:56.789Z）转为时间戳
-                  split($1, d, "-"); 
-                  split(d[3], t, "T"); 
-                  split(t[2], s, ":"); 
-                  sub(/\..*/, "", s[3]); # 去掉毫秒
-                  ts = mktime(d[1]" "d[2]" "t[1]" "s[1]" "s[2]" "s[3]); 
-                  print ts "\t" $2
-                }' \
-              | sort -nr) # 按时间戳降序排序（最新的在前）
+              | grep -v "<none>") # 排除虚悬镜像
             
-            # 步骤2：提取镜像名列表（仅保留名称，去掉时间戳）
-            IMAGE_NAMES=$(echo "$IMAGES_LIST" | awk '{print $2}')
+            # 打印所有镜像列表（便于排查）
+            echo "当前项目所有镜像（按创建时间降序）："
+            echo "$IMAGE_LIST"
             
-            # 步骤3：统计镜像总数
-            TOTAL_IMAGES=$(echo "$IMAGE_NAMES" | wc -l | tr -d ' ')
-            echo "该项目镜像总数：$TOTAL_IMAGES"
+            # 统计镜像总数
+            TOTAL_IMAGES=$(echo "$IMAGE_LIST" | wc -l | tr -d ' ')
+            echo "镜像总数：$TOTAL_IMAGES"
             
-            # 步骤4：如果镜像数超过3个，删除第4个及以后的旧镜像
+            # 保留最新3个，删除其余
             if [ "$TOTAL_IMAGES" -gt 3 ]; then
-              echo "需要清理的旧镜像（保留最新3个）："
-              # 跳过前3个，列出要删除的镜像
-              IMAGES_TO_DELETE=$(echo "$IMAGE_NAMES" | tail -n +4)
+              echo "开始清理旧镜像（保留最新3个）："
+              # 跳过前3个，提取要删除的镜像
+              IMAGES_TO_DELETE=$(echo "$IMAGE_LIST" | tail -n +4)
               
-              # 遍历删除旧镜像
+              # 遍历删除（先删依赖容器，再删镜像）
               while IFS= read -r IMAGE; do
                 if [ -n "$IMAGE" ]; then
-                  echo "删除旧镜像：$IMAGE"
-                  docker rmi -f "$IMAGE" || echo "镜像$IMAGE已被使用，跳过清理"
+                  echo "处理镜像：$IMAGE"
+                  # 1. 查找并删除使用该镜像的所有容器
+                  CONTAINERS=$(docker ps -a --filter "ancestor=$IMAGE" --format "{{.ID}}")
+                  if [ -n "$CONTAINERS" ]; then
+                    echo "  - 停止并删除依赖容器：$CONTAINERS"
+                    docker stop $CONTAINERS >/dev/null 2>&1
+                    docker rm $CONTAINERS >/dev/null 2>&1
+                  fi
+                  # 2. 强制删除镜像
+                  if docker rmi -f "$IMAGE"; then
+                    echo "  ✅ 镜像删除成功"
+                  else
+                    echo "  ❌ 镜像删除失败（可能被其他资源占用）"
+                  fi
                 fi
               done <<< "$IMAGES_TO_DELETE"
             else
-              echo "镜像总数≤3个，无需清理"
+              echo "镜像数量≤3，无需清理"
             fi
             
-            # 兜底：清理Docker悬空镜像/容器（常规运维）
+            # 兜底清理：删除悬空镜像/容器
             docker image prune -f
             docker container prune -f
 
-      # 最终版：停旧容器 → 启新容器 → 删旧容器 完整闭环
+      # 停旧容器 → 启新容器 → 删旧容器 完整闭环
       - name: Restart containers
         uses: appleboy/ssh-action@master
         with:
@@ -323,7 +329,6 @@ jobs:
             cd ${{ env.SERVER_PROJECT_DIR }}
             
             echo "===== 步骤1：停止当前项目所有旧容器（释放端口） ====="
-            # 仅停止容器，不删除（先释放端口，保证新容器能启动）
             docker-compose stop || echo "当前无运行中的容器"
             
             echo "===== 步骤2：启动新容器（端口已释放，无冲突） ====="
@@ -338,10 +343,9 @@ jobs:
             fi
             
             echo "===== 步骤4：彻底删除旧容器（清理残留资源） ====="
-            # 只删除当前项目已停止的旧容器（-f 强制删除，无需确认）
             docker-compose rm -f || echo "无旧容器需删除"
             
-            # 企业级兜底：清理Docker悬空资源（不影响业务，常规运维操作）
+            # 企业级兜底：清理Docker悬空资源
             docker container prune -f > /dev/null 2>&1
             docker network prune -f > /dev/null 2>&1
             
@@ -369,15 +373,20 @@ jobs:
             sleep 10
             echo "--- 接口版本检查 ---"
             HEALTH_CHECK_URL="https://nestjs.duguqinchen.com/proApi/"
-            # 核心新增：访问接口并输出完整响应结果
             echo "访问接口: $HEALTH_CHECK_URL"
-            # 使用 curl 获取完整响应（包含状态码+响应体），并处理异常
+            # 获取完整响应（状态码+响应体）
             RESPONSE_CONTENT=$(curl -s -w "\nHTTP_STATUS:%{http_code}" "$HEALTH_CHECK_URL")
-            # 分离响应体和状态码
+            # 分离状态码和响应体
             HTTP_STATUS=$(echo "$RESPONSE_CONTENT" | grep -oP 'HTTP_STATUS:\K\d+' | tail -1)
             RESPONSE_BODY=$(echo "$RESPONSE_CONTENT" | sed '$ d' | sed 's/HTTP_STATUS://g')
             
-            # 输出完整响应结果
+            # 输出响应结果
             echo "接口响应状态码: $HTTP_STATUS"
             echo "接口响应内容: "
-            echo "$RESPONSE_BODY" | jq . 2>/dev/null || echo "$RESPONSE_BODY" # 尝试格式化JSON，非JSON则直接输出
+            echo "$RESPONSE_BODY" | jq . 2>/dev/null || echo "$RESPONSE_BODY"
+            
+            # 状态码校验
+            if [ "$HTTP_STATUS" != "200" ]; then
+              echo "错误：接口返回状态码异常，期望200，实际$HTTP_STATUS"
+              exit 1
+            fi
