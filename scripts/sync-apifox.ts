@@ -41,7 +41,8 @@ async function syncToApifox() {
 
     if (response.status === 200) {
       console.log(`✅ 同步到Apifox成功！`);
-      console.log(response.data);
+      const data = response.data as Record<string, any>;
+      console.log(data.counters);
     }
   } catch (error) {
     console.error('❌ 同步到Apifox失败:', error);
