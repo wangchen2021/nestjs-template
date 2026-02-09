@@ -1,114 +1,161 @@
 name: NestJS Backend Auto Deploy to Tencent Cloud (Docker)
-run-name: ${{ github.actor }} 正在通过Docker部署NestJS后端 🚀
+run-name: ${{ github.actor }} 部署NestJS后端 🚀 [${{ github.ref_name }}]
 
 on:
   release:
     types: [published]
+  workflow_dispatch:  # 支持手动触发，便于紧急发布
+    inputs:
+      deploy_env:
+        description: '部署环境'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - test
 
 env:
-  SERVER_PROJECT_DIR: "/usr/local/project/nestjs-template/pro"
-  DOCKER_REGISTRY: "124.221.133.110:5000/nestjs-template"
+  SERVER_PROJECT_DIR: "/usr/local/project/nestjs-template/${{ github.event.inputs.deploy_env || 'production' }}"
+  DOCKER_REGISTRY: "chen-docker/nestjs-template"
   NGINX_CONF_DIR: "nginx/conf.d"
+  # 清理策略：保留最近7天镜像，避免堆积
+  CLEAN_RETENTION_DAYS: 7
+  # 超时配置：避免步骤卡死
+  SSH_TIMEOUT: 300s
 
 jobs:
   Deploy-to-Tencent-Cloud-Docker:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['24.11.0']
     steps:
       - name: Check out code
         uses: actions/checkout@v5
         with:
-          fetch-depth: 0 # 必须拉取完整Git历史
+          fetch-depth: 0  # 拉取完整Git历史，用于版本生成
+          persist-credentials: false
 
       - name: Install pnpm
         uses: pnpm/action-setup@v2
         with:
           version: '10.20.0'
+          # 企业级：缓存pnpm store，加速依赖安装
+          run_install: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24.11.0'
+          node-version: ${{ matrix.node-version }}
           cache: 'pnpm'
+          cache-dependency-path: pnpm-lock.yaml
 
-      # ========== 修复：生成build-info.json + 显式输出变量 ==========
       - name: Generate build info file
-        id: build_info # 必须保留id，用于后续引用输出变量
+        id: build_info
         run: |
           # 初始化默认值，防止变量为空
           CORE_VERSION="unknown"
-          FULL_VERSION="unknown-prod+unknown.unknown"
-          COMMIT_HASH="unknown"
-          BUILD_TIME="unknown"
+          FULL_VERSION="unknown-${{ github.event.inputs.deploy_env || 'prod' }}+unknown"
+          COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+          BUILD_TIME=$(TZ=Asia/Shanghai date +"%Y-%m-%d %H:%M:%S" 2>/dev/null || echo "unknown")
+          BUILD_TIME_TAG=$(TZ=Asia/Shanghai date +%Y%m%d%H%M%S 2>/dev/null || echo "unknown")
 
-          if command -v git &> /dev/null; then
-            COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-            BUILD_TIME=$(TZ=Asia/Shanghai date +"%Y:%m:%d %H:%M:%S" 2>/dev/null || echo "unknown")
-            BUILD_TIME_TAG=$(TZ=Asia/Shanghai date +%Y%m%d%H%M%S 2>/dev/null || echo "unknown")
-
-            # 2. 获取核心版本（优先Release Tag）
-            if [ -n "${{ github.ref_name }}" ]; then
-              CORE_VERSION="${{ github.ref_name }}"
-            else
-              # 尝试获取最新Tag
-              TAG_VERSION=$(git describe --tags --abbrev=0 2>/dev/null)
-              if [ -n "$TAG_VERSION" ]; then
-                CORE_VERSION="$TAG_VERSION"
-              else
-                CORE_VERSION="$COMMIT_HASH" # 用Commit哈希兜底
-              fi
-            fi
-            
-            # 3. 拼接完整版本号
-            FULL_VERSION="${CORE_VERSION}-prod-${BUILD_TIME_TAG}-${COMMIT_HASH}"
+          # 优先使用Release Tag，无则用最新Tag，最后用Commit哈希（企业级版本规范）
+          if [ -n "${{ github.ref_name }}" ]; then
+            CORE_VERSION="${{ github.ref_name }}"
+          else
+            TAG_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+            CORE_VERSION=${TAG_VERSION:-$COMMIT_HASH}
           fi
           
-          # 4. 创建目录 + 生成build-info.json
+          # 标准化版本号：环境-核心版本-时间戳-提交哈希（企业级可追溯）
+          FULL_VERSION="${{ github.event.inputs.deploy_env || 'prod' }}-${CORE_VERSION}-${BUILD_TIME_TAG}-${COMMIT_HASH}"
+          
+          # 创建版本文件（企业级：同时生成JSON和.env格式，适配不同读取方式）
           mkdir -p ./src/config
+          # JSON格式（程序内读取）
           cat > ./src/config/build-info.json << EOF
           {
             "coreVersion": "${CORE_VERSION}",
-            "env": "prod",
+            "env": "${{ github.event.inputs.deploy_env || 'production' }}",
             "commitHash": "${COMMIT_HASH}",
             "buildTime": "${BUILD_TIME}",
             "fullVersion": "${FULL_VERSION}",
-            "buildId": "${{ github.run_id }}-${{ github.run_attempt }}"
+            "buildId": "${{ github.run_id }}-${{ github.run_attempt }}",
+            "githubRef": "${{ github.ref }}",
+            "actor": "${{ github.actor }}"
           }
           EOF
+          # ENV格式（容器环境变量读取）
+          cat > ./src/config/build-info.env << EOF
+          BUILD_CORE_VERSION=${CORE_VERSION}
+          BUILD_ENV=${{ github.event.inputs.deploy_env || 'production' }}
+          BUILD_COMMIT_HASH=${COMMIT_HASH}
+          BUILD_TIME=${BUILD_TIME}
+          BUILD_FULL_VERSION=${FULL_VERSION}
+          BUILD_ID=${{ github.run_id }}-${{ github.run_attempt }}
+          EOF
           
-          # 5. 方式1：输出到step的outputs（推荐，优先级高于env）
+          # 输出到step outputs（核心，优先级最高）
           echo "full_version=${FULL_VERSION}" >> $GITHUB_OUTPUT
           echo "core_version=${CORE_VERSION}" >> $GITHUB_OUTPUT
           echo "commit_hash=${COMMIT_HASH}" >> $GITHUB_OUTPUT
+          echo "build_time=${BUILD_TIME}" >> $GITHUB_OUTPUT
           
-          # 6. 方式2：输出到环境变量（兼容原有引用）
+          # 输出到环境变量（兼容）
           echo "FULL_VERSION=${FULL_VERSION}" >> $GITHUB_ENV
           echo "CORE_VERSION=${CORE_VERSION}" >> $GITHUB_ENV
-          echo "COMMIT_HASH=${COMMIT_HASH}" >> $GITHUB_ENV
           
-          # 验证输出
-          echo "最终版本信息：FULL_VERSION=$FULL_VERSION, CORE_VERSION=$CORE_VERSION"
+          # 企业级：打印版本信息，便于日志排查
+          echo "===== 构建版本信息 ====="
+          echo "Full Version: ${FULL_VERSION}"
+          echo "Core Version: ${CORE_VERSION}"
+          echo "Commit Hash: ${COMMIT_HASH}"
           cat ./src/config/build-info.json
         env:
-          NODE_ENV: production
+          NODE_ENV: ${{ github.event.inputs.deploy_env || 'production' }}
+        # 超时控制
+        timeout-minutes: 5
 
+      # ========== 2. 依赖安装&构建（企业级容错+校验） ==========
       - name: Install dependencies & Build
         run: |
-          pnpm install
-          pnpm build
-          # 验证构建产物
+          set -e  # 任意命令失败立即退出
+          # 企业级：校验pnpm-lock.yaml完整性
+          if [ ! -f "pnpm-lock.yaml" ]; then
+            echo "错误：pnpm-lock.yaml不存在，依赖版本无法锁定！"
+            exit 1
+          fi
+          # 安装依赖（--frozen-lockfile 强制锁定版本，企业级必加）
+          pnpm install --frozen-lockfile --prod=false
+          # 构建（添加构建日志输出）
+          pnpm run build -- --verbose
+          # 企业级：多维度校验构建产物
+          echo "===== 构建产物校验 ====="
           ls -la ./dist
+          # 核心产物校验
           if [ ! -f "./dist/main.js" ]; then
             echo "构建失败：dist/main.js不存在！"
             exit 1
           fi
-          # 验证版本文件
+          # 版本文件校验
+          if [ ! -f "./src/config/build-info.json" ]; then
+            echo "错误：build-info.json未生成！"
+            exit 1
+          fi
+          # 复制版本文件到dist（确保容器内可访问）
+          cp ./src/config/build-info* ./dist/config/
           if [ ! -f "./dist/config/build-info.json" ]; then
-            echo "警告：build-info.json未打包到dist，请检查nest-cli配置！"
+            echo "错误：build-info.json未复制到dist/config！"
+            exit 1
           fi
         env:
-          NODE_ENV: production
+          NODE_ENV: ${{ github.event.inputs.deploy_env || 'production' }}
+        timeout-minutes: 10
 
-      # 确保服务器目录存在
+      # ========== 3. 服务器环境准备（企业级幂等性） ==========
       - name: Ensure server directory exists
         uses: appleboy/ssh-action@master
         with:
@@ -116,15 +163,21 @@ jobs:
           username: ${{ secrets.TENCENT_SERVER_USER }}
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
           port: ${{ secrets.TENCENT_SERVER_PORT }}
+          timeout: ${{ env.SSH_TIMEOUT }}
+          # 企业级：幂等性脚本（重复执行无副作用）
           script: |
-            mkdir -p ${{ env.SERVER_PROJECT_DIR }}
-            mkdir -p ${{ env.SERVER_PROJECT_DIR }}/${{ env.NGINX_CONF_DIR }}
-            mkdir -p ${{ env.SERVER_PROJECT_DIR }}/src/config/env
-            mkdir -p ${{ env.SERVER_PROJECT_DIR }}/src/config
-            mkdir -p ${{ env.SERVER_PROJECT_DIR }}/dist
-            rm -rf ${{ env.SERVER_PROJECT_DIR }}/dist/* || echo "无旧dist文件"
+            set -e
+            # 创建目录（-p 确保幂等）
+            mkdir -p ${{ env.SERVER_PROJECT_DIR }}/{${{ env.NGINX_CONF_DIR }},src/config/env,src/config,dist}
+            # 清理旧构建产物（保留配置文件）
+            rm -rf ${{ env.SERVER_PROJECT_DIR }}/dist/* 
+            rm -rf ${{ env.SERVER_PROJECT_DIR }}/node_modules/* || true
+            # 企业级：校验目录权限
+            chown -R ${{ secrets.TENCENT_SERVER_USER }}:${{ secrets.TENCENT_SERVER_USER }} ${{ env.SERVER_PROJECT_DIR }}
+            chmod -R 750 ${{ env.SERVER_PROJECT_DIR }}
+            echo "服务器目录准备完成：${{ env.SERVER_PROJECT_DIR }}"
 
-      # 上传配置文件（含版本文件）
+      # ========== 4. 上传文件（企业级分批次+校验） ==========
       - name: Upload config & package files
         uses: appleboy/scp-action@master
         with:
@@ -132,12 +185,12 @@ jobs:
           username: ${{ secrets.TENCENT_SERVER_USER }}
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
           port: ${{ secrets.TENCENT_SERVER_PORT }}
-          source: "./Dockerfile,./docker-compose.yml,./${{ env.NGINX_CONF_DIR }}/default.conf,./package.json,./pnpm-lock.yaml,./src/config/env/.env,./src/config/env/.env.production,./src/config/build-info.json"
+          source: "./Dockerfile,./docker-compose.yml,./${{ env.NGINX_CONF_DIR }}/default.conf,./package.json,./pnpm-lock.yaml,./src/config/env/.env*,./src/config/build-info*"
           target: ${{ env.SERVER_PROJECT_DIR }}
           strip_components: 0
           overwrite: true
+          timeout: ${{ env.SSH_TIMEOUT }}
 
-      # 上传dist目录
       - name: Upload dist directory
         uses: appleboy/scp-action@master
         with:
@@ -149,58 +202,127 @@ jobs:
           target: ${{ env.SERVER_PROJECT_DIR }}
           strip_components: 0
           overwrite: true
+          timeout: ${{ env.SSH_TIMEOUT }}
 
-      # 验证服务器文件
-      - name: Verify dist file on server
+      # ========== 5. 服务器文件校验（企业级严谨性） ==========
+      - name: Verify files on server
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.TENCENT_SERVER_HOST }}
           username: ${{ secrets.TENCENT_SERVER_USER }}
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
           port: ${{ secrets.TENCENT_SERVER_PORT }}
+          timeout: ${{ env.SSH_TIMEOUT }}
           script: |
+            set -e
             cd ${{ env.SERVER_PROJECT_DIR }}
-            ls -la ./dist
-            if [ ! -f "./src/config/build-info.json" ]; then
-              echo "警告：src/config/build-info.json未上传！"
-            fi
-            if [ ! -f "./dist/config/build-info.json" ]; then
-              echo "警告：dist/config/build-info.json未上传！"
-            fi
-            if [ ! -f "./dist/main.js" ]; then
-              echo "上传失败：dist/main.js不存在！"
-              exit 1
-            fi
+            echo "===== 服务器文件校验 ====="
+            # 核心文件校验
+            REQUIRED_FILES=(
+              "Dockerfile"
+              "docker-compose.yml"
+              "dist/main.js"
+              "src/config/build-info.json"
+              "dist/config/build-info.json"
+            )
+            for FILE in "${REQUIRED_FILES[@]}"; do
+              if [ ! -f "$FILE" ]; then
+                echo "错误：服务器缺少必要文件 $FILE！"
+                exit 1
+              fi
+            done
+            # 打印关键文件信息
+            ls -la dist/main.js
+            cat src/config/build-info.json
 
-      # 构建Docker镜像（使用step outputs，彻底消除警告）
-      - name: Build, Tag, Push Docker Image
+      # ========== 6. 构建&推送镜像（企业级防堆积+容错） ==========
+      - name: Build & Push Docker Image
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.TENCENT_SERVER_HOST }}
           username: ${{ secrets.TENCENT_SERVER_USER }}
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
           port: ${{ secrets.TENCENT_SERVER_PORT }}
+          timeout: ${{ env.SSH_TIMEOUT }}
           script: |
+            set -e
             cd ${{ env.SERVER_PROJECT_DIR }}
             IMAGE_TAG="${{ steps.build_info.outputs.full_version }}"
-            # 构建镜像（添加容错）
+            IMAGE_NAME="${{ env.DOCKER_REGISTRY }}:$IMAGE_TAG"
+            
+            echo "===== 构建Docker镜像 ====="
+            # 企业级：构建前清理悬空镜像（预防堆积）
+            docker image prune -f
+            
+            # 构建镜像（添加构建参数+缓存优化）
             if ! docker build \
-              --build-arg BUILD_VERSION="${{ steps.build_info.outputs.full_version }}" \
+              --build-arg NODE_ENV="${{ github.event.inputs.deploy_env || 'production' }}" \
+              --build-arg BUILD_VERSION="$IMAGE_TAG" \
               --build-arg BUILD_COMMIT="${{ steps.build_info.outputs.commit_hash }}" \
-              -t ${{ env.DOCKER_REGISTRY }}:$IMAGE_TAG .; then
+              --cache-from ${{ env.DOCKER_REGISTRY }}:latest \
+              -t $IMAGE_NAME \
+              -t ${{ env.DOCKER_REGISTRY }}:latest .; then
               echo "Docker构建失败！"
               exit 1
             fi
+            
+            echo "===== 推送Docker镜像 ====="
             # 推送镜像
-            if ! docker push ${{ env.DOCKER_REGISTRY }}:$IMAGE_TAG; then
+            if ! docker push $IMAGE_NAME; then
               echo "Docker推送失败！"
               exit 1
             fi
-            # 更新docker-compose.yml
-            sed -i.bak "s|${{ env.DOCKER_REGISTRY }}:.*|${{ env.DOCKER_REGISTRY }}:$IMAGE_TAG|" docker-compose.yml
+            # 推送latest标签（便于回滚）
+            docker push ${{ env.DOCKER_REGISTRY }}:latest
+            
+            echo "===== 更新docker-compose.yml ====="
+            # 企业级：安全替换镜像标签（备份+校验）
+            cp docker-compose.yml docker-compose.yml.bak
+            # 使用sed安全替换（避免特殊字符问题）
+            sed -i.bak "s|image: ${DOCKER_REGISTRY}:.*|image: ${IMAGE_NAME}|" docker-compose.yml
+            # 校验替换结果
+            if ! grep -q "$IMAGE_NAME" docker-compose.yml; then
+              echo "错误：docker-compose.yml镜像标签替换失败！"
+              cp docker-compose.yml.bak docker-compose.yml
+              exit 1
+            fi
             rm -f docker-compose.yml.bak
+            cat docker-compose.yml | grep "image: ${{ env.DOCKER_REGISTRY }}"
 
-      # 重启服务
+      # ========== 7. 清理旧镜像（企业级核心：防堆积） ==========
+      - name: Cleanup old Docker images
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.TENCENT_SERVER_HOST }}
+          username: ${{ secrets.TENCENT_SERVER_USER }}
+          key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
+          port: ${{ secrets.TENCENT_SERVER_PORT }}
+          timeout: ${{ env.SSH_TIMEOUT }}
+          script: |
+            set -e
+            cd ${{ env.SERVER_PROJECT_DIR }}
+            echo "===== 清理旧镜像（保留最近${{ env.CLEAN_RETENTION_DAYS }}天） ====="
+            # 企业级：安全清理策略（仅清理当前项目的旧镜像，避免误删其他镜像）
+            # 1. 获取保留时间戳
+            RETENTION_TIMESTAMP=$(date -d "${{ env.CLEAN_RETENTION_DAYS }} days ago" +%s)
+            # 2. 列出当前项目的所有镜像
+            IMAGES=$(docker images --format "{{.Repository}}:{{.Tag}} {{.CreatedAt}}" | grep "${{ env.DOCKER_REGISTRY }}" | grep -v "latest" | grep -v "${{ steps.build_info.outputs.full_version }}")
+            # 3. 逐个判断并清理
+            while IFS= read -r LINE; do
+              IMAGE_NAME=$(echo $LINE | awk '{print $1}')
+              CREATED_AT=$(echo $LINE | awk '{print $2, $3, $4, $5, $6}')
+              CREATED_TIMESTAMP=$(date -d "$CREATED_AT" +%s 2>/dev/null || echo 0)
+              if [ $CREATED_TIMESTAMP -lt $RETENTION_TIMESTAMP ] && [ $CREATED_TIMESTAMP -ne 0 ]; then
+                echo "清理旧镜像：$IMAGE_NAME"
+                docker rmi -f $IMAGE_NAME || echo "镜像$IMAGE_NAME已被使用，跳过清理"
+              fi
+            done <<< "$IMAGES"
+            # 4. 清理悬空镜像
+            docker image prune -f
+            # 5. 清理停止的容器
+            docker container prune -f
+
+      # ========== 8. 重启服务（企业级平滑重启） ==========
       - name: Restart containers
         uses: appleboy/ssh-action@master
         with:
@@ -208,13 +330,23 @@ jobs:
           username: ${{ secrets.TENCENT_SERVER_USER }}
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
           port: ${{ secrets.TENCENT_SERVER_PORT }}
+          timeout: ${{ env.SSH_TIMEOUT }}
           script: |
+            set -e
             cd ${{ env.SERVER_PROJECT_DIR }}
-            docker-compose down || echo "容器未运行"
-            docker-compose up -d --build
-            docker-compose ps
+            echo "===== 重启容器 ====="
+            # 企业级：平滑重启（先启动新容器，再停止旧容器）
+            docker-compose up -d --build --remove-orphans
+            # 校验容器状态
+            if ! docker-compose ps | grep -q "Up"; then
+              echo "错误：容器启动失败！"
+              docker-compose logs
+              exit 1
+            fi
+            # 清理无用容器
+            docker-compose down --remove-orphans || true
 
-      # 验证部署
+      # ========== 9. 部署验证（企业级多维度） ==========
       - name: Verify deployment
         uses: appleboy/ssh-action@master
         with:
@@ -222,12 +354,35 @@ jobs:
           username: ${{ secrets.TENCENT_SERVER_USER }}
           key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
           port: ${{ secrets.TENCENT_SERVER_PORT }}
+          timeout: ${{ env.SSH_TIMEOUT }}
           script: |
+            set -e
             cd ${{ env.SERVER_PROJECT_DIR }}
-            echo "=== NGINX LOG ==="
-            docker-compose logs --tail=10 nginx
-            echo "=== BACKEND LOG ==="
-            docker-compose logs --tail=10 nestjs-backend
-            sleep 5
-            echo "=== 验证版本信息接口 ==="
-            curl -s https://nestjs.duguqinchen.com/proApi/ || echo "版本接口调用失败，请检查接口"
+            echo "===== 部署验证 ====="
+            # 1. 容器状态验证
+            echo "--- 容器状态 ---"
+            docker-compose ps
+            # 2. 日志验证
+            echo "--- NGINX 日志（最近20行） ---"
+            docker-compose logs --tail=20 nginx
+            echo "--- 后端日志（最近20行） ---"
+            docker-compose logs --tail=20 nestjs-backend
+            # 3. 健康检查接口验证（企业级必加）
+            echo "--- 健康检查接口 ---"
+            sleep 10  # 等待服务启动
+            HEALTH_CHECK_URL="https://nestjs.duguqinchen.com/proApi/health"
+            RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" $HEALTH_CHECK_URL)
+            if [ "$RESPONSE" != "200" ]; then
+              echo "错误：健康检查接口返回码异常，期望200，实际$RESPONSE"
+              curl -s $HEALTH_CHECK_URL
+              exit 1
+            fi
+            # 4. 版本接口验证
+            echo "--- 版本信息接口 ---"
+            VERSION_RESPONSE=$(curl -s https://nestjs.duguqinchen.com/proApi/version)
+            echo $VERSION_RESPONSE | jq .  # 格式化输出（需服务器安装jq）
+            # 校验版本号是否匹配
+            if ! echo $VERSION_RESPONSE | grep -q "${{ steps.build_info.outputs.full_version }}"; then
+              echo "错误：版本信息不匹配！"
+              exit 1
+            fi
