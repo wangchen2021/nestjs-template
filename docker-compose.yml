@@ -10,8 +10,8 @@ services:
     environment:
       - NODE_ENV=production
     volumes:
-      - /usr/local/project/nestjs-template/pro/src/config/env/.env:/app/src/config/env/.env:ro
-      - /usr/local/project/nestjs-template/pro/src/config/env/.env.production:/app/src/config/env/.env.production:ro
+      - ./src/config/env/.env:/app/src/config/env/.env:ro
+      - ./src/config/env/.env.production:/app/src/config/env/.env.production:ro
     networks:
       - nest-nginx-30001-network
 
