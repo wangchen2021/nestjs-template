@@ -283,7 +283,7 @@ jobs:
             docker image prune -f
             docker container prune -f
 
-      # 核心修改：删除原有的Release port步骤，重写Restart containers步骤
+      # 最终版：停旧容器 → 启新容器 → 删旧容器 完整闭环
       - name: Restart containers
         uses: appleboy/ssh-action@master
         with:
@@ -296,28 +296,30 @@ jobs:
             set -e
             cd ${{ env.SERVER_PROJECT_DIR }}
             
-            # 1. 只停当前项目的容器
-            docker-compose down -v --remove-orphans || echo "当前无运行中的容器"
+            echo "===== 步骤1：停止当前项目所有旧容器（释放端口） ====="
+            # 仅停止容器，不删除（先释放端口，保证新容器能启动）
+            docker-compose stop || echo "当前无运行中的容器"
             
-            # 2. 兜底：校验端口是否真的释放（仅日志输出，不终止流程）
-            echo "校验${{ env.NGINX_HTTP_PORT }}端口状态..."
-            if lsof -i:${{ env.NGINX_HTTP_PORT }} > /dev/null; then
-              echo "警告：${{ env.NGINX_HTTP_PORT }}端口仍被非Docker进程占用，尝试强制释放..."
-              sudo fuser -k ${{ env.NGINX_HTTP_PORT }}/tcp || echo "端口释放失败，将尝试强制启动容器"
-            fi
-            
-            # 3. 启动新容器（此时端口已被docker-compose down释放，不会冲突）
-            echo "===== 启动新容器 ====="
+            echo "===== 步骤2：启动新容器（端口已释放，无冲突） ====="
             docker-compose up -d --build
             
-            # 4. 验证容器状态
+            echo "===== 步骤3：验证新容器启动状态 ====="
             sleep 3
             if ! docker-compose ps | grep -q "Up"; then
-              echo "错误：容器启动失败！"
+              echo "错误：新容器启动失败！"
               docker-compose logs
               exit 1
             fi
-            echo "容器启动成功！"
+            
+            echo "===== 步骤4：彻底删除旧容器（清理残留资源） ====="
+            # 只删除当前项目已停止的旧容器（-f 强制删除，无需确认）
+            docker-compose rm -f || echo "无旧容器需删除"
+            
+            # 企业级兜底：清理Docker悬空资源（不影响业务，常规运维操作）
+            docker container prune -f > /dev/null 2>&1
+            docker network prune -f > /dev/null 2>&1
+            
+            echo "✅ 容器启动成功，旧容器已彻底删除！"
 
       - name: Verify deployment
         uses: appleboy/ssh-action@master
