@@ -12,7 +12,7 @@ WORKDIR /app
 RUN mkdir -p /app/src/config/env && \
     chown -R node:node /app && \
     chmod -R 750 /app && \
-    chmod -R 640 /app/src/config/env || true
+    chmod -R 640 /app/src/config/env
 
 # 切换到非root用户
 USER node
