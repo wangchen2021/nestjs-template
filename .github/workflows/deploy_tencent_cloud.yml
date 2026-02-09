@@ -21,6 +21,7 @@ env:
   SSH_TIMEOUT: 300s
 
 jobs:
+  # 核心部署任务（原有逻辑不变）
   Deploy-to-Tencent-Cloud-Docker:
     runs-on: ubuntu-latest
     strategy:
@@ -251,7 +252,6 @@ jobs:
             echo "替换后的镜像配置："
             cat docker-compose.yml | grep "image: "
 
-      # 最终修复：移除续行符后注释，修复语法错误+精准清理
       - name: Cleanup old Docker images
         uses: appleboy/ssh-action@master
         with:
@@ -265,57 +265,40 @@ jobs:
             cd ${{ env.SERVER_PROJECT_DIR }}
             echo "===== 清理旧镜像（仅保留最新3个版本） ======"
             
-            # 手动指定镜像仓库前缀（避免特殊字符导致grep失效）
             IMAGE_REPO="${{ secrets.DOCKER_PATH }}/nestjs-template"
-            
-            # 步骤1：获取所有该仓库的镜像（排除latest和<none>）
-            echo "正在扫描所有镜像..."
-            # 关键修复：续行符\后不能加注释，注释单独写在行首
             IMAGE_LIST=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep -F "$IMAGE_REPO" | grep -v "latest" | grep -v "<none>")
             
-            # 打印原始扫描结果（便于排查）
             echo "原始扫描到的镜像列表："
             echo "$IMAGE_LIST"
             
-            # 空值判断
             if [ -z "$IMAGE_LIST" ]; then
               echo "无需要清理的镜像，跳过"
               exit 0
             fi
             
-            # 步骤2：提取TAG中的时间戳并排序（最新→最旧）
-            echo "正在按时间戳排序..."
             SORTED_IMAGES=$(echo "$IMAGE_LIST" | while read -r IMAGE; do
-              # 提取TAG中的14位时间戳（prod-v0.0.44-20260209171024-c790a7b → 20260209171024）
-              # 兼容仓库地址含:的情况，拆分后取最后一段作为TAG
               TAG=$(echo "$IMAGE" | awk -F: '{for(i=1;i<=NF;i++){last=$i}} END{print last}')
               TIMESTAMP=$(echo "$TAG" | grep -oE '[0-9]{14}' | head -1)
-              # 确保时间戳存在才输出（避免空值）
               if [ -n "$TIMESTAMP" ]; then
                 echo "${TIMESTAMP} ${IMAGE}"
               fi
             done | sort -nr | awk '{print $2}')
             
-            # 打印排序后的列表
             echo "排序后的镜像列表（最新→最旧）："
             echo "$SORTED_IMAGES"
             
-            # 步骤3：统计数量
             TOTAL=$(echo "$SORTED_IMAGES" | wc -l | tr -d ' ')
             echo "有效镜像总数：$TOTAL"
             
-            # 步骤4：保留最新3个，删除其余
             if [ "$TOTAL" -gt 3 ]; then
               echo "需要清理的旧镜像（总数${TOTAL}，保留前3个）："
               TO_DELETE=$(echo "$SORTED_IMAGES" | tail -n +4)
               echo "$TO_DELETE"
               
-              # 遍历删除（先删容器再删镜像）
               for IMAGE in $TO_DELETE; do
                 if [ -n "$IMAGE" ]; then
                   echo "====================================="
                   echo "处理镜像：$IMAGE"
-                  # 1. 查找并删除使用该镜像的所有容器
                   CONTAINER_IDS=$(docker ps -a --filter "ancestor=$IMAGE" --format "{{.ID}}")
                   if [ -n "$CONTAINER_IDS" ]; then
                     echo "  - 停止并删除依赖容器：$CONTAINER_IDS"
@@ -324,7 +307,6 @@ jobs:
                   else
                     echo "  - 无依赖容器"
                   fi
-                  # 2. 强制删除镜像
                   if docker rmi -f "$IMAGE"; then
                     echo "  ✅ 成功删除镜像：$IMAGE"
                   else
@@ -336,13 +318,10 @@ jobs:
               echo "镜像数量≤3（当前${TOTAL}个），无需清理"
             fi
             
-            # 兜底清理悬空资源
-            echo "===== 兜底清理悬空资源 ====="
             docker image prune -f >/dev/null 2>&1
             docker container prune -f >/dev/null 2>&1
             echo "✅ 镜像清理完成！"
 
-      # 容器重启逻辑
       - name: Restart containers
         uses: appleboy/ssh-action@master
         with:
@@ -372,7 +351,6 @@ jobs:
             echo "===== 步骤4：清理旧容器 ====="
             docker-compose rm -f || echo "无旧容器需删除"
             
-            # 兜底清理
             docker container prune -f >/dev/null 2>&1
             docker network prune -f >/dev/null 2>&1
             
@@ -402,7 +380,6 @@ jobs:
             HEALTH_CHECK_URL="https://nestjs.duguqinchen.com/proApi/"
             echo "访问接口: $HEALTH_CHECK_URL"
             
-            # 获取响应并校验
             RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" "$HEALTH_CHECK_URL")
             HTTP_STATUS=$(echo "$RESPONSE" | grep -oP 'HTTP_STATUS:\K\d+' | tail -1)
             RESPONSE_BODY=$(echo "$RESPONSE" | sed '$ d')
@@ -411,8 +388,66 @@ jobs:
             echo "响应内容: "
             echo "$RESPONSE_BODY" | jq . 2>/dev/null || echo "$RESPONSE_BODY"
             
-            # 非200则终止流程
             if [ "$HTTP_STATUS" != "200" ]; then
               echo "错误：接口状态码异常！"
               exit 1
             fi
+
+  # 新增：独立的API同步任务（仅部署成功后执行）
+  Sync-API-To-Apifox:
+    needs: Deploy-to-Tencent-Cloud-Docker  # 依赖部署任务，仅部署成功才执行
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['24.11.0']
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: '10.20.0'
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies（仅安装生成API所需依赖）
+        run: |
+          set -e
+          pnpm install --frozen-lockfile --prod=false
+        timeout-minutes: 5
+
+      - name: Generate openapi.json（生成API文档）
+        run: |
+          set -e
+          # 执行你的generate-openapi.ts脚本
+          npx ts-node scripts/generate-openapi.ts
+          # 验证文件生成
+          if [ ! -f "./openapi.json" ]; then
+            echo "错误：openapi.json生成失败！"
+            exit 1
+          fi
+          echo "✅ openapi.json生成成功"
+        timeout-minutes: 5
+
+      - name: Sync to Apifox（同步到Apifox）
+        env:
+          # 从GitHub Secrets读取Apifox凭证（需提前配置）
+          APIFOX_TOKEN: ${{ secrets.APIFOX_TOKEN }}
+          APIFOX_PROJECT_ID: ${{ secrets.APIFOX_PROJECT_ID }}
+        run: |
+          set -e
+          # 执行你的sync-apifox.ts脚本
+          npx ts-node scripts/sync-apifox.ts
+          echo "✅ API文档同步到Apifox完成"
+        timeout-minutes: 5
