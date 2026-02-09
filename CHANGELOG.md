@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.24](https://github.com/wangchen2021/nestjs-template/compare/v0.0.23...v0.0.24) (2026-02-09)
+
+### Features
+
+- 权限修复 ([1e2742e](https://github.com/wangchen2021/nestjs-template/commit/1e2742e29728188221061701769ca45d005b29cc))
+
 ## [0.0.23](https://github.com/wangchen2021/nestjs-template/compare/v0.0.22...v0.0.23) (2026-02-09)
 
 ### Features
