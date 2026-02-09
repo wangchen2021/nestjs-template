@@ -20,7 +20,6 @@ env:
   NGINX_CONF_DIR: "nginx/conf.d"
   CLEAN_RETENTION_DAYS: 7
   SSH_TIMEOUT: 300s
-  # 新增：定义Nginx映射端口（统一管理，便于修改）
   NGINX_HTTP_PORT: "8001"
   NGINX_HTTPS_PORT: "4431"
 
@@ -220,7 +219,6 @@ jobs:
             set -e
             cd ${{ env.SERVER_PROJECT_DIR }}
             IMAGE_TAG="${{ steps.build_info.outputs.full_version }}"
-            # 从Secrets拼接完整镜像地址（隐藏IP）
             IMAGE_NAME="${{ secrets.DOCKER_PATH }}/nestjs-template:$IMAGE_TAG"
             LATEST_IMAGE="${{ secrets.DOCKER_PATH }}/nestjs-template:latest"
             
@@ -247,9 +245,7 @@ jobs:
             
             echo "===== 更新docker-compose.yml ====="
             cp docker-compose.yml docker-compose.yml.bak
-            # 核心修复：匹配无标签的镜像地址，替换为完整地址
             sed -i.bak "s|image: chen-docker/nestjs-template.*|image: ${IMAGE_NAME}|" docker-compose.yml
-            # 验证替换结果
             if ! grep -q "$IMAGE_NAME" docker-compose.yml; then
               echo "错误：docker-compose.yml镜像标签替换失败！"
               cp docker-compose.yml.bak docker-compose.yml
@@ -287,53 +283,7 @@ jobs:
             docker image prune -f
             docker container prune -f
 
-      # 新增：部署前检测并释放端口
-      - name: Release port before deployment
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ secrets.TENCENT_SERVER_HOST }}
-          username: ${{ secrets.TENCENT_SERVER_USER }}
-          key: ${{ secrets.TENCENT_SERVER_SSH_KEY }}
-          port: ${{ secrets.TENCENT_SERVER_PORT }}
-          timeout: ${{ env.SSH_TIMEOUT }}
-          script: |
-            set -e
-            cd ${{ env.SERVER_PROJECT_DIR }}
-            echo "===== 释放端口（${{ env.NGINX_HTTP_PORT }}/${{ env.NGINX_HTTPS_PORT }}） ====="
-            
-            # 1. 停止并删除当前项目的所有容器（释放端口）
-            echo "停止并删除旧容器..."
-            docker-compose down -v --remove-orphans || echo "无运行中的容器"
-            
-            # 2. 检测并杀死占用目标端口的非Docker进程
-            echo "检测占用${{ env.NGINX_HTTP_PORT }}端口的进程..."
-            HTTP_PID=$(lsof -t -i:${{ env.NGINX_HTTP_PORT }} 2>/dev/null || echo "")
-            if [ -n "$HTTP_PID" ]; then
-              echo "杀死占用${{ env.NGINX_HTTP_PORT }}端口的进程（PID：$HTTP_PID）"
-              sudo kill -9 $HTTP_PID || echo "进程已退出"
-            fi
-            
-            echo "检测占用${{ env.NGINX_HTTPS_PORT }}端口的进程..."
-            HTTPS_PID=$(lsof -t -i:${{ env.NGINX_HTTPS_PORT }} 2>/dev/null || echo "")
-            if [ -n "$HTTPS_PID" ]; then
-              echo "杀死占用${{ env.NGINX_HTTPS_PORT }}端口的进程（PID：$HTTPS_PID）"
-              sudo kill -9 $HTTPS_PID || echo "进程已退出"
-            fi
-            
-            # 3. 验证端口是否释放
-            echo "验证端口是否释放..."
-            if lsof -i:${{ env.NGINX_HTTP_PORT }} > /dev/null; then
-              echo "错误：${{ env.NGINX_HTTP_PORT }}端口仍被占用！"
-              lsof -i:${{ env.NGINX_HTTP_PORT }}
-              exit 1
-            fi
-            if lsof -i:${{ env.NGINX_HTTPS_PORT }} > /dev/null; then
-              echo "错误：${{ env.NGINX_HTTPS_PORT }}端口仍被占用！"
-              lsof -i:${{ env.NGINX_HTTPS_PORT }}
-              exit 1
-            fi
-            echo "端口释放成功！"
-
+      # 核心修改：删除原有的Release port步骤，重写Restart containers步骤
       - name: Restart containers
         uses: appleboy/ssh-action@master
         with:
@@ -345,19 +295,25 @@ jobs:
           script: |
             set -e
             cd ${{ env.SERVER_PROJECT_DIR }}
-            echo "===== 启动新容器 ====="
             
-            # 端口已释放，安全启动新容器
-            if ! docker-compose up -d --build; then
-              echo "容器启动失败！日志："
-              docker-compose logs
-              exit 1
+            # 1. 只停当前项目的容器
+            docker-compose down -v --remove-orphans || echo "当前无运行中的容器"
+            
+            # 2. 兜底：校验端口是否真的释放（仅日志输出，不终止流程）
+            echo "校验${{ env.NGINX_HTTP_PORT }}端口状态..."
+            if lsof -i:${{ env.NGINX_HTTP_PORT }} > /dev/null; then
+              echo "警告：${{ env.NGINX_HTTP_PORT }}端口仍被非Docker进程占用，尝试强制释放..."
+              sudo fuser -k ${{ env.NGINX_HTTP_PORT }}/tcp || echo "端口释放失败，将尝试强制启动容器"
             fi
             
-            # 验证容器状态
-            sleep 5
+            # 3. 启动新容器（此时端口已被docker-compose down释放，不会冲突）
+            echo "===== 启动新容器 ====="
+            docker-compose up -d --build
+            
+            # 4. 验证容器状态
+            sleep 3
             if ! docker-compose ps | grep -q "Up"; then
-              echo "错误：容器未正常运行！"
+              echo "错误：容器启动失败！"
               docker-compose logs
               exit 1
             fi
