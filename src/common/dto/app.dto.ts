@@ -28,5 +28,5 @@ export class AppDto {
     required: true,
     type: 'string',
   })
-  data: string;
+  date: string;
 }

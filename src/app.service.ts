@@ -13,7 +13,7 @@ export class AppService {
       app: this.appConfigService.getAppName(),
       version: this.versionService.getFullVersion(),
       env: this.versionService.getEnv(),
-      data: this.versionService.getBuildTime(),
+      date: this.versionService.getBuildTime(),
     };
   }
 }

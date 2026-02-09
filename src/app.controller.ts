@@ -11,8 +11,10 @@ export class AppController {
     description: 'app信息',
     type: AppDto,
     example: {
+      app: 'nestjs-template',
       version: '1.0.0',
       env: 'development',
+      date: '2023-01-01 00:00:00',
     },
   })
   @Get()
