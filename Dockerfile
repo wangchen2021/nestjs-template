@@ -9,7 +9,14 @@ RUN pnpm install --prod --registry=https://registry.npmmirror.com
 FROM 124.221.133.110:5000/chen-node24-prod:v1 AS prod
 WORKDIR /app
 
-RUN mkdir -p /app/src/config/env
+# 创建非root用户
+RUN groupadd -r nodeUser && useradd -r -g nodeUser nodeUser
+
+# 创建必要的目录并设置权限
+RUN mkdir -p /app/src/config/env && chown -R nodeUser:nodeUser /app
+
+# 切换到非root用户
+USER nodeUser
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY ./dist ./dist
