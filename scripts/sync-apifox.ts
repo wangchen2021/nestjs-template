@@ -28,7 +28,7 @@ async function syncToApifox() {
     const response = await axios.post(
       `${APIFOX_CONFIG.baseUrl}/projects/${APIFOX_CONFIG.projectId}/import-openapi?locale=zh-CN`,
       JSON.stringify({
-        input: openApiJson,
+        input: JSON.stringify(openApiJson),
         options: {},
       }),
       {
@@ -41,8 +41,7 @@ async function syncToApifox() {
 
     if (response.status === 200) {
       console.log(`✅ 同步到Apifox成功！`);
-      const data = response.data as Record<string, any>;
-      console.log(data.counters);
+      console.log(response.data);
     }
   } catch (error) {
     console.error('❌ 同步到Apifox失败:', error);

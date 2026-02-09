@@ -25,7 +25,8 @@
     "release:patch": "release-it patch",
     "release:minor": "release-it minor",
     "release:major": "release-it major",
-    "generate:api": "ts-node scripts/generate-openapi.ts"
+    "generate:api": "ts-node scripts/generate-openapi.ts",
+    "sync:apifox": "ts-node scripts/sync-apifox.ts"
   },
   "engines": {
     "node": "24.x",
