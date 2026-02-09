@@ -4,7 +4,7 @@ run-name: ${{ github.actor }} 部署NestJS后端 🚀 [${{ github.ref_name }}]
 on:
   release:
     types: [published]
-  workflow_dispatch:  # 支持手动触发，便于紧急发布
+  workflow_dispatch:
     inputs:
       deploy_env:
         description: '部署环境'
@@ -13,11 +13,11 @@ on:
         type: choice
         options:
           - production
-          - test
+          # - test
 
 env:
   SERVER_PROJECT_DIR: "/usr/local/project/nestjs-template/${{ github.event.inputs.deploy_env || 'production' }}"
-  DOCKER_REGISTRY: "chen-docker/nestjs-template"
+  DOCKER_REGISTRY: "${{ secrets.DOCKER_PATH }}/nestjs-template"
   NGINX_CONF_DIR: "nginx/conf.d"
   # 清理策略：保留最近7天镜像，避免堆积
   CLEAN_RETENTION_DAYS: 7

@@ -5,7 +5,7 @@ networks:
 services:
   nestjs-backend:
     build: .
-    image: chen-docker/nestjs-template:v1
+    image: chen-docker/nestjs-template
     restart: always
     environment:
       - NODE_ENV=production
