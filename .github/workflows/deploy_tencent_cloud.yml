@@ -430,7 +430,6 @@ jobs:
       - name: Generate openapi.json（生成API文档）
         run: |
           set -e
-          # 执行你的generate-openapi.ts脚本
           npx ts-node scripts/generate-openapi.ts
           # 验证文件生成
           if [ ! -f "./openapi.json" ]; then
@@ -447,7 +446,6 @@ jobs:
           APIFOX_PROJECT_ID: ${{ secrets.APIFOX_PROJECT_ID }}
         run: |
           set -e
-          # 执行你的sync-apifox.ts脚本
           npx ts-node scripts/sync-apifox.ts
           echo "✅ API文档同步到Apifox完成"
         timeout-minutes: 5
