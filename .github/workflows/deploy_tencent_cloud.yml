@@ -251,7 +251,7 @@ jobs:
             echo "替换后的镜像配置："
             cat docker-compose.yml | grep "image: "
 
-      # 最终修复：高版本Docker原生sort，极简稳定
+      # 终极兼容：完全不依赖--sort，仅用镜像TAG的时间戳排序
       - name: Cleanup old Docker images
         uses: appleboy/ssh-action@master
         with:
@@ -263,47 +263,59 @@ jobs:
           script: |
             set -e
             cd ${{ env.SERVER_PROJECT_DIR }}
-            echo "===== 清理旧镜像（仅保留最新3个版本） ====="
+            echo "===== 清理旧镜像（仅保留最新3个版本） ======"
             
-            # 高版本Docker原生支持：参数位置严格按官方要求
-            # --sort=created_desc 放在images后，仓库名前
-            IMAGE_LIST=$(docker images \
-              --sort=created_desc \
-              --format="{{.Repository}}:{{.Tag}}" \
-              "${{ secrets.DOCKER_PATH }}/nestjs-template" \
+            # 核心思路：利用镜像TAG中的时间戳（20260209163538）排序，完全不依赖Docker参数
+            # 步骤1：获取所有项目镜像（排除latest）
+            IMAGE_LIST=$(docker images --format "{{.Repository}}:{{.Tag}}" \
+              | grep "${{ secrets.DOCKER_PATH }}/nestjs-template" \
               | grep -v "latest" \
               | grep -v "<none>")
             
             # 空值判断
             if [ -z "$IMAGE_LIST" ]; then
-              echo "无该项目的非latest镜像，跳过清理"
+              echo "无需要清理的镜像，跳过"
               exit 0
             fi
             
-            # 打印列表便于排查
-            echo "当前项目镜像列表（按创建时间降序）："
-            echo "$IMAGE_LIST"
+            # 步骤2：提取TAG中的时间戳并排序（最新的在前）
+            SORTED_IMAGES=$(echo "$IMAGE_LIST" | while read -r IMAGE; do
+              # 提取TAG中的时间戳（格式：prod-v0.0.39-20260209163538-d57fdfa → 20260209163538）
+              TAG=$(echo "$IMAGE" | awk -F: '{print $2}')
+              TIMESTAMP=$(echo "$TAG" | grep -oE '[0-9]{14}' | head -1)
+              # 输出：时间戳 镜像名（用于排序）
+              echo "${TIMESTAMP} ${IMAGE}"
+            done | sort -nr | awk '{print $2}')
             
-            # 统计数量
-            TOTAL=$(echo "$IMAGE_LIST" | wc -l | tr -d ' ')
+            # 打印排序后的镜像列表
+            echo "排序后的镜像列表（最新→最旧）："
+            echo "$SORTED_IMAGES"
+            
+            # 步骤3：统计数量
+            TOTAL=$(echo "$SORTED_IMAGES" | wc -l | tr -d ' ')
             echo "镜像总数：$TOTAL"
             
-            # 保留最新3个，删除其余
+            # 步骤4：保留最新3个，删除其余
             if [ "$TOTAL" -gt 3 ]; then
-              echo "开始清理旧镜像（保留前3个）："
-              # 跳过前3个，取后面的所有镜像
-              TO_DELETE=$(echo "$IMAGE_LIST" | tail -n +4)
+              echo "需要清理的旧镜像："
+              TO_DELETE=$(echo "$SORTED_IMAGES" | tail -n +4)
               
+              # 遍历删除（先删容器再删镜像）
               for IMAGE in $TO_DELETE; do
                 if [ -n "$IMAGE" ]; then
                   echo "处理镜像：$IMAGE"
-                  # 先删除使用该镜像的容器（强制）
-                  docker ps -a --filter "ancestor=$IMAGE" -q | xargs -r docker stop | xargs -r docker rm
-                  # 强制删除镜像
+                  # 1. 删除使用该镜像的所有容器
+                  CONTAINER_IDS=$(docker ps -a --filter "ancestor=$IMAGE" --format "{{.ID}}")
+                  if [ -n "$CONTAINER_IDS" ]; then
+                    echo "  - 停止并删除容器：$CONTAINER_IDS"
+                    docker stop $CONTAINER_IDS >/dev/null 2>&1
+                    docker rm $CONTAINER_IDS >/dev/null 2>&1
+                  fi
+                  # 2. 强制删除镜像
                   if docker rmi -f "$IMAGE"; then
-                    echo "✅ 成功删除 $IMAGE"
+                    echo "  ✅ 成功删除：$IMAGE"
                   else
-                    echo "❌ 删除失败 $IMAGE（可能被占用）"
+                    echo "  ❌ 删除失败：$IMAGE（可能被其他资源占用）"
                   fi
                 fi
               done
@@ -312,7 +324,8 @@ jobs:
             fi
             
             # 兜底清理悬空资源
-            docker system prune -af --volumes >/dev/null 2>&1
+            docker image prune -f >/dev/null 2>&1
+            docker container prune -f >/dev/null 2>&1
 
       # 容器重启逻辑
       - name: Restart containers
@@ -387,4 +400,4 @@ jobs:
             if [ "$HTTP_STATUS" != "200" ]; then
               echo "错误：接口状态码异常！"
               exit 1
-            fi 
+            fi
