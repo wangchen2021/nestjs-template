@@ -251,7 +251,7 @@ jobs:
             echo "替换后的镜像配置："
             cat docker-compose.yml | grep "image: "
 
-      # 终极兼容：完全不依赖--sort，仅用镜像TAG的时间戳排序
+      # 最终修复：精准匹配镜像仓库，正确扫描所有镜像
       - name: Cleanup old Docker images
         uses: appleboy/ssh-action@master
         with:
@@ -265,12 +265,19 @@ jobs:
             cd ${{ env.SERVER_PROJECT_DIR }}
             echo "===== 清理旧镜像（仅保留最新3个版本） ======"
             
-            # 核心思路：利用镜像TAG中的时间戳（20260209163538）排序，完全不依赖Docker参数
-            # 步骤1：获取所有项目镜像（排除latest）
+            # 修复1：手动指定镜像仓库前缀（避免特殊字符导致grep失效）
+            IMAGE_REPO="${{ secrets.DOCKER_PATH }}/nestjs-template"
+            
+            # 步骤1：获取所有该仓库的镜像（排除latest和<none>）
+            echo "正在扫描所有镜像..."
             IMAGE_LIST=$(docker images --format "{{.Repository}}:{{.Tag}}" \
-              | grep "${{ secrets.DOCKER_PATH }}/nestjs-template" \
+              | grep -F "$IMAGE_REPO" \  # -F：按固定字符串匹配（忽略:等特殊字符）
               | grep -v "latest" \
               | grep -v "<none>")
+            
+            # 打印原始扫描结果（便于排查）
+            echo "原始扫描到的镜像列表："
+            echo "$IMAGE_LIST"
             
             # 空值判断
             if [ -z "$IMAGE_LIST" ]; then
@@ -278,54 +285,63 @@ jobs:
               exit 0
             fi
             
-            # 步骤2：提取TAG中的时间戳并排序（最新的在前）
+            # 步骤2：提取TAG中的时间戳并排序（最新→最旧）
+            echo "正在按时间戳排序..."
             SORTED_IMAGES=$(echo "$IMAGE_LIST" | while read -r IMAGE; do
-              # 提取TAG中的时间戳（格式：prod-v0.0.39-20260209163538-d57fdfa → 20260209163538）
-              TAG=$(echo "$IMAGE" | awk -F: '{print $2}')
+              # 提取TAG中的14位时间戳（prod-v0.0.44-20260209171024-c790a7b → 20260209171024）
+              TAG=$(echo "$IMAGE" | awk -F: '{print $3}')  # 修复2：仓库含:，TAG是第3段
               TIMESTAMP=$(echo "$TAG" | grep -oE '[0-9]{14}' | head -1)
-              # 输出：时间戳 镜像名（用于排序）
-              echo "${TIMESTAMP} ${IMAGE}"
+              # 确保时间戳存在才输出（避免空值）
+              if [ -n "$TIMESTAMP" ]; then
+                echo "${TIMESTAMP} ${IMAGE}"
+              fi
             done | sort -nr | awk '{print $2}')
             
-            # 打印排序后的镜像列表
+            # 打印排序后的列表
             echo "排序后的镜像列表（最新→最旧）："
             echo "$SORTED_IMAGES"
             
             # 步骤3：统计数量
             TOTAL=$(echo "$SORTED_IMAGES" | wc -l | tr -d ' ')
-            echo "镜像总数：$TOTAL"
+            echo "有效镜像总数：$TOTAL"
             
             # 步骤4：保留最新3个，删除其余
             if [ "$TOTAL" -gt 3 ]; then
-              echo "需要清理的旧镜像："
+              echo "需要清理的旧镜像（总数>$TOTAL，保留前3个）："
               TO_DELETE=$(echo "$SORTED_IMAGES" | tail -n +4)
+              echo "$TO_DELETE"
               
               # 遍历删除（先删容器再删镜像）
               for IMAGE in $TO_DELETE; do
                 if [ -n "$IMAGE" ]; then
+                  echo "====================================="
                   echo "处理镜像：$IMAGE"
-                  # 1. 删除使用该镜像的所有容器
+                  # 1. 查找并删除使用该镜像的所有容器
                   CONTAINER_IDS=$(docker ps -a --filter "ancestor=$IMAGE" --format "{{.ID}}")
                   if [ -n "$CONTAINER_IDS" ]; then
-                    echo "  - 停止并删除容器：$CONTAINER_IDS"
+                    echo "  - 停止并删除依赖容器：$CONTAINER_IDS"
                     docker stop $CONTAINER_IDS >/dev/null 2>&1
                     docker rm $CONTAINER_IDS >/dev/null 2>&1
+                  else
+                    echo "  - 无依赖容器"
                   fi
                   # 2. 强制删除镜像
                   if docker rmi -f "$IMAGE"; then
-                    echo "  ✅ 成功删除：$IMAGE"
+                    echo "  ✅ 成功删除镜像：$IMAGE"
                   else
-                    echo "  ❌ 删除失败：$IMAGE（可能被其他资源占用）"
+                    echo "  ❌ 删除镜像失败：$IMAGE（可能被其他资源占用）"
                   fi
                 fi
               done
             else
-              echo "镜像数量≤3，无需清理"
+              echo "镜像数量≤3（当前$TOTAL个），无需清理"
             fi
             
             # 兜底清理悬空资源
+            echo "===== 兜底清理悬空资源 ====="
             docker image prune -f >/dev/null 2>&1
             docker container prune -f >/dev/null 2>&1
+            echo "✅ 镜像清理完成！"
 
       # 容器重启逻辑
       - name: Restart containers
