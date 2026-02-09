@@ -1,5 +1,5 @@
 # 阶段1：安装生产依赖（构建专用镜像）
-FROM 124.221.133.110:5000/chen-node24-build:v1 AS deps
+FROM chen-docker/chen-node24-build:v1 AS deps
 WORKDIR /app
 
 # 复制依赖清单
@@ -13,7 +13,7 @@ RUN pnpm install --prod --registry=https://registry.npmmirror.com
 # RUN pnpm run build
 
 # 阶段2：生产镜像（最小化、安全、无构建工具）
-FROM 124.221.133.110:5000/chen-node24-prod:v1 AS prod
+FROM chen-docker/chen-node24-prod:v1 AS prod
 WORKDIR /app
 
 # 提前声明环境变量（符合Docker最佳实践）
