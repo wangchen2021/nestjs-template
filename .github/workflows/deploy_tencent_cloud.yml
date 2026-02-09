@@ -18,7 +18,6 @@ on:
 env:
   SERVER_PROJECT_DIR: "/usr/local/project/nestjs-template/${{ github.event.inputs.deploy_env || 'production' }}"
   NGINX_CONF_DIR: "nginx/conf.d"
-  CLEAN_RETENTION_DAYS: 7
   SSH_TIMEOUT: 300s
 
 jobs:
@@ -252,6 +251,7 @@ jobs:
             echo "替换后的镜像配置："
             cat docker-compose.yml | grep "image: "
 
+      # 核心修改：清理旧镜像改为保留最新3个版本
       - name: Cleanup old Docker images
         uses: appleboy/ssh-action@master
         with:
@@ -263,20 +263,49 @@ jobs:
           script: |
             set -e
             cd ${{ env.SERVER_PROJECT_DIR }}
-            echo "===== 清理旧镜像（保留最近${{ env.CLEAN_RETENTION_DAYS }}天） ====="
-            RETENTION_TIMESTAMP=$(date -d "${{ env.CLEAN_RETENTION_DAYS }} days ago" +%s)
-            IMAGES=$(docker images --format "{{.Repository}}:{{.Tag}} {{.CreatedAt}}" | grep "${{ secrets.DOCKER_PATH }}/nestjs-template" | grep -v "latest" | grep -v "${{ steps.build_info.outputs.full_version }}")
+            echo "===== 清理旧镜像（仅保留最新3个版本） ====="
             
-            while IFS= read -r LINE; do
-              IMAGE_NAME=$(echo $LINE | awk '{print $1}')
-              CREATED_AT=$(echo $LINE | awk '{print $2, $3, $4, $5, $6}')
-              CREATED_TIMESTAMP=$(date -d "$CREATED_AT" +%s 2>/dev/null || echo 0)
-              if [ $CREATED_TIMESTAMP -lt $RETENTION_TIMESTAMP ] && [ $CREATED_TIMESTAMP -ne 0 ]; then
-                echo "清理旧镜像：$IMAGE_NAME"
-                docker rmi -f $IMAGE_NAME || echo "镜像$IMAGE_NAME已被使用，跳过清理"
-              fi
-            done <<< "$IMAGES"
+            # 步骤1：获取该项目所有镜像（排除latest标签），按创建时间降序排序
+            # 输出格式：创建时间戳 镜像名:标签
+            IMAGES_LIST=$(docker images --format "{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}" \
+              | grep "${{ secrets.DOCKER_PATH }}/nestjs-template" \
+              | grep -v "latest" \
+              | awk '{
+                  # 将Docker的CreatedAt格式（2026-02-09T12:34:56.789Z）转为时间戳
+                  split($1, d, "-"); 
+                  split(d[3], t, "T"); 
+                  split(t[2], s, ":"); 
+                  sub(/\..*/, "", s[3]); # 去掉毫秒
+                  ts = mktime(d[1]" "d[2]" "t[1]" "s[1]" "s[2]" "s[3]); 
+                  print ts "\t" $2
+                }' \
+              | sort -nr) # 按时间戳降序排序（最新的在前）
             
+            # 步骤2：提取镜像名列表（仅保留名称，去掉时间戳）
+            IMAGE_NAMES=$(echo "$IMAGES_LIST" | awk '{print $2}')
+            
+            # 步骤3：统计镜像总数
+            TOTAL_IMAGES=$(echo "$IMAGE_NAMES" | wc -l | tr -d ' ')
+            echo "该项目镜像总数：$TOTAL_IMAGES"
+            
+            # 步骤4：如果镜像数超过3个，删除第4个及以后的旧镜像
+            if [ "$TOTAL_IMAGES" -gt 3 ]; then
+              echo "需要清理的旧镜像（保留最新3个）："
+              # 跳过前3个，列出要删除的镜像
+              IMAGES_TO_DELETE=$(echo "$IMAGE_NAMES" | tail -n +4)
+              
+              # 遍历删除旧镜像
+              while IFS= read -r IMAGE; do
+                if [ -n "$IMAGE" ]; then
+                  echo "删除旧镜像：$IMAGE"
+                  docker rmi -f "$IMAGE" || echo "镜像$IMAGE已被使用，跳过清理"
+                fi
+              done <<< "$IMAGES_TO_DELETE"
+            else
+              echo "镜像总数≤3个，无需清理"
+            fi
+            
+            # 兜底：清理Docker悬空镜像/容器（常规运维）
             docker image prune -f
             docker container prune -f
 
@@ -339,7 +368,7 @@ jobs:
             
             sleep 10
             echo "--- 接口版本检查 ---"
-            HEALTH_CHECK_URL="https://nestjs.duguqinchen.com/proApi"
+            HEALTH_CHECK_URL="https://nestjs.duguqinchen.com/proApi/"
             # 核心新增：访问接口并输出完整响应结果
             echo "访问接口: $HEALTH_CHECK_URL"
             # 使用 curl 获取完整响应（包含状态码+响应体），并处理异常
