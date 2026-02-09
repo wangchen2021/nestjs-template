@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.41](https://github.com/wangchen2021/nestjs-template/compare/v0.0.40...v0.0.41) (2026-02-09)
+
+### Features
+
+- 1653 ([c5d3b7d](https://github.com/wangchen2021/nestjs-template/commit/c5d3b7d2d83dd0fb5dce5082e67aca8da6630a62))
+
 ## [0.0.40](https://github.com/wangchen2021/nestjs-template/compare/v0.0.39...v0.0.40) (2026-02-09)
 
 ### Features
