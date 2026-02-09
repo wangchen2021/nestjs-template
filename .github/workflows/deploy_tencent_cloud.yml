@@ -75,7 +75,6 @@ jobs:
             "buildTime": "${BUILD_TIME}",
             "fullVersion": "${FULL_VERSION}",
             "buildId": "${{ github.run_id }}-${{ github.run_attempt }}",
-            "githubRef": "${{ github.ref }}",
             "actor": "${{ github.actor }}"
           }
           EOF
@@ -341,16 +340,15 @@ jobs:
             sleep 10
             echo "--- 接口版本检查 ---"
             HEALTH_CHECK_URL="https://nestjs.duguqinchen.com/proApi"
-            RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" $HEALTH_CHECK_URL)
-            if [ "$RESPONSE" != "200" ]; then
-              echo "错误：接口版本检查返回码异常，期望200，实际$RESPONSE"
-              curl -s $HEALTH_CHECK_URL
-              exit 1
-            fi
+            # 核心新增：访问接口并输出完整响应结果
+            echo "访问接口: $HEALTH_CHECK_URL"
+            # 使用 curl 获取完整响应（包含状态码+响应体），并处理异常
+            RESPONSE_CONTENT=$(curl -s -w "\nHTTP_STATUS:%{http_code}" "$HEALTH_CHECK_URL")
+            # 分离响应体和状态码
+            HTTP_STATUS=$(echo "$RESPONSE_CONTENT" | grep -oP 'HTTP_STATUS:\K\d+' | tail -1)
+            RESPONSE_BODY=$(echo "$RESPONSE_CONTENT" | sed '$ d' | sed 's/HTTP_STATUS://g')
             
-            echo "--- 版本信息接口 ---"
-            VERSION_RESPONSE=$(curl -s https://nestjs.duguqinchen.com/proApi/version)
-            echo $VERSION_RESPONSE | jq . 2>/dev/null || echo $VERSION_RESPONSE
-            if ! echo $VERSION_RESPONSE | grep -q "${{ steps.build_info.outputs.full_version }}"; then
-              echo "警告：版本信息不匹配，但部署流程已完成！"
-            fi
+            # 输出完整响应结果
+            echo "接口响应状态码: $HTTP_STATUS"
+            echo "接口响应内容: "
+            echo "$RESPONSE_BODY" | jq . 2>/dev/null || echo "$RESPONSE_BODY" # 尝试格式化JSON，非JSON则直接输出

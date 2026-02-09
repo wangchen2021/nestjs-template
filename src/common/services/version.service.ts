@@ -4,6 +4,7 @@ import * as path from 'path';
 import git from 'git-rev-sync';
 import dayjs from 'dayjs';
 import { AppConfigService } from '../../config/config.service';
+import { execSync } from 'child_process';
 
 export type BuildInfo = {
   coreVersion: string;
@@ -12,6 +13,7 @@ export type BuildInfo = {
   buildTime: string;
   fullVersion: string;
   buildId: string;
+  actor: string;
 };
 
 @Injectable()
@@ -22,6 +24,34 @@ export class VersionService implements OnModuleInit {
   constructor(private appConfigService: AppConfigService) {
     // 初始化时获取环境标识
     this.env = this.appConfigService.getEnv() || 'unknown';
+  }
+
+  /**
+   * 新增：获取当前Git配置的用户名（优先本地，本地无则查全局）
+   * @returns Git用户名（无配置返回'unknown'）
+   */
+  private getGitUsername(): string {
+    try {
+      // 1. 优先获取本地仓库配置的用户名
+      let username = execSync('git config user.name', {
+        encoding: 'utf-8',
+        stdio: 'pipe', // 避免命令报错时输出到控制台
+      }).trim();
+
+      // 2. 本地无配置则获取全局配置
+      if (!username) {
+        username = execSync('git config --global user.name', {
+          encoding: 'utf-8',
+          stdio: 'pipe',
+        }).trim();
+      }
+
+      return username || 'unknown';
+    } catch (error) {
+      // 无Git配置/非Git仓库/命令执行失败时返回unknown
+      console.error('[VersionService] 获取 Git 用户名失败:', error);
+      return 'unknown';
+    }
   }
 
   private get fallbackInfo(): BuildInfo {
@@ -39,6 +69,7 @@ export class VersionService implements OnModuleInit {
       buildTime,
       fullVersion: `${coreVersion}-${env}-${buildTime}-${commitHash}`, // 拼接完整版本号
       buildId: 'local-dev',
+      actor: this.getGitUsername(),
     };
   }
 
@@ -98,5 +129,13 @@ export class VersionService implements OnModuleInit {
 
   getBuildTime(): string {
     return this.buildInfo.buildTime;
+  }
+
+  getActor(): string {
+    return this.buildInfo.actor;
+  }
+
+  getAllInfo(): BuildInfo {
+    return { ...this.buildInfo };
   }
 }

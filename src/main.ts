@@ -4,11 +4,13 @@ import { VersioningType, ValidationPipe } from '@nestjs/common';
 import cors from 'cors';
 import { setupSwagger } from './config/swagger/swagger.config';
 import { AppConfigService } from './config/config.service';
+import { VersionService } from './common/services/version.service';
 
 async function bootstrap() {
   try {
     const app = await NestFactory.create(AppModule);
     const configService = app.get(AppConfigService);
+    const versionService = app.get(VersionService);
     const PORT = configService.getPort();
     const NODE_ENV = configService.getEnv();
     const CORS_ORIGIN = configService.getCorsOrigin();
@@ -40,6 +42,7 @@ async function bootstrap() {
         console.log(`文档地址：http://localhost:${PORT}${PREFIX}api/doc`);
       }
       console.log(`API前缀：${PREFIX}`);
+      console.log(versionService.getAllInfo());
     });
   } catch (err) {
     console.error(`服务启动失败: `, err);
