@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.22](https://github.com/wangchen2021/nestjs-template/compare/v0.0.21...v0.0.22) (2026-02-09)
+
+### Features
+
+- docker config ([f72ecf7](https://github.com/wangchen2021/nestjs-template/commit/f72ecf74c4b3a97f06555bd97bdc43b4bcfd5316))
+
 ## [0.0.21](https://github.com/wangchen2021/nestjs-template/compare/v0.0.20...v0.0.21) (2026-02-09)
 
 ### Features
