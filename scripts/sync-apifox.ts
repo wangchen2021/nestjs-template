@@ -4,8 +4,8 @@ import * as path from 'path';
 
 // Apifox配置（从环境变量读取，CI中配置）
 const APIFOX_CONFIG = {
-  token: process.env.APIFOX_TOKEN!, // Apifox开放API令牌
-  projectId: process.env.APIFOX_PROJECT_ID!, // 项目ID
+  token: process.env.APIFOX_TOKEN! || 'APS-TK1yyRuzJIEURXfbbAeMaiUM0hL8hqqe', // Apifox开放API令牌
+  projectId: process.env.APIFOX_PROJECT_ID! || '7794065', // 项目ID
   baseUrl: 'https://api.apifox.com/v1',
 };
 
@@ -35,13 +35,14 @@ async function syncToApifox() {
         headers: {
           'X-Apifox-Api-Version': '2024-03-28',
           Authorization: `Bearer ${APIFOX_CONFIG.token}`,
+          'Content-Type': 'application/json',
         },
       },
     );
 
     if (response.status === 200) {
       console.log(`✅ 同步到Apifox成功！`);
-      console.log(response.data);
+      console.log(response.data.data);
     }
   } catch (error) {
     console.error('❌ 同步到Apifox失败:', error);
