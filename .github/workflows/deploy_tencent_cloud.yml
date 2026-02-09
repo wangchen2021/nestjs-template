@@ -20,8 +20,6 @@ env:
   NGINX_CONF_DIR: "nginx/conf.d"
   CLEAN_RETENTION_DAYS: 7
   SSH_TIMEOUT: 300s
-  NGINX_HTTP_PORT: "8001"
-  NGINX_HTTPS_PORT: "4431"
 
 jobs:
   Deploy-to-Tencent-Cloud-Docker:
@@ -341,11 +339,11 @@ jobs:
             docker-compose logs --tail=20 nestjs-backend
             
             sleep 10
-            echo "--- 健康检查接口 ---"
-            HEALTH_CHECK_URL="https://nestjs.duguqinchen.com/proApi/health"
+            echo "--- 接口版本检查 ---"
+            HEALTH_CHECK_URL="https://nestjs.duguqinchen.com/proApi"
             RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" $HEALTH_CHECK_URL)
             if [ "$RESPONSE" != "200" ]; then
-              echo "错误：健康检查接口返回码异常，期望200，实际$RESPONSE"
+              echo "错误：接口版本检查返回码异常，期望200，实际$RESPONSE"
               curl -s $HEALTH_CHECK_URL
               exit 1
             fi
