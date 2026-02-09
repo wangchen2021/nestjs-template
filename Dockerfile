@@ -18,10 +18,9 @@ RUN mkdir -p /app/src/config/env && \
 USER node
 
 # 复制依赖和构建产物
+COPY node_modules ./node_modules
 COPY ./dist ./dist
 COPY package.json ./
-COPY ./src/config/env/.env ./src/config/env/.env
-COPY ./src/config/env/.env.production ./src/config/env/.env.production
 
 EXPOSE 30001
 
